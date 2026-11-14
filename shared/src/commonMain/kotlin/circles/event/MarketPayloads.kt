@@ -163,6 +163,13 @@ private const val K_VOUCH_VALID = "vouchValidityDays"
 private const val K_REVIEWERS = "reviewersForPause"
 private const val K_PAUSE_DAYS = "defaultPauseDays"
 private const val K_COOLDOWN = "incidentCooldownDays"
+private const val K_LEVEL_EVERYDAY = "everydayLevel"
+private const val K_LEVEL_VALUABLE = "valuableLevel"
+private const val K_LEVEL_HIGH_VALUE = "highValueLevel"
+private const val K_WAIT_EVERYDAY = "everydayWaiting"
+private const val K_WAIT_VALUABLE = "valuableWaiting"
+private const val K_WAIT_HIGH_VALUE = "highValueWaiting"
+private val CLASS_RULE_KEYS = listOf(K_LEVEL_EVERYDAY, K_LEVEL_VALUABLE, K_LEVEL_HIGH_VALUE, K_WAIT_EVERYDAY, K_WAIT_VALUABLE, K_WAIT_HIGH_VALUE)
 private const val K_NOTE_ID = "noteId"
 private const val K_KIND = "kind"
 private const val K_WITH = "with"
@@ -198,14 +205,23 @@ object MarketPayloads {
         K_REGULAR to CborInt(v.regularTenths.toLong()), K_TRUSTED to CborInt(v.trustedTenths.toLong()), K_STEWARD_TIER to CborInt(v.stewardTenths.toLong()),
         K_HALF_LIFE to CborInt(v.halfLifeDays.toLong()), K_VOUCHES to CborInt(v.vouchesForRegular.toLong()), K_VOUCH_VALID to CborInt(v.vouchValidityDays.toLong()),
         K_REVIEWERS to CborInt(v.reviewersForPause.toLong()), K_PAUSE_DAYS to CborInt(v.defaultPauseDays.toLong()), K_COOLDOWN to CborInt(v.incidentCooldownDays.toLong()),
+        K_LEVEL_EVERYDAY to CborInt(v.everydayLevel.toLong()), K_LEVEL_VALUABLE to CborInt(v.valuableLevel.toLong()), K_LEVEL_HIGH_VALUE to CborInt(v.highValueLevel.toLong()),
+        K_WAIT_EVERYDAY to CborInt(if (v.everydayWaiting) 1 else 0), K_WAIT_VALUABLE to CborInt(if (v.valuableWaiting) 1 else 0), K_WAIT_HIGH_VALUE to CborInt(if (v.highValueWaiting) 1 else 0),
     )
 
     /** Reads the whole-number fields only; whether the values are acceptable is [ConfigSettings.problem]'s job. */
     fun parseConfigUpdate(map: CborMap): Parsed<ConfigSettings> {
         val names = listOf(K_REGULAR, K_TRUSTED, K_STEWARD_TIER, K_HALF_LIFE, K_VOUCHES, K_VOUCH_VALID, K_REVIEWERS, K_PAUSE_DAYS, K_COOLDOWN)
-        keys(map, required = names.toSet())?.let { return Parsed.Invalid(it) }
+        keys(map, required = names.toSet(), optional = CLASS_RULE_KEYS.toSet())?.let { return Parsed.Invalid(it) }
         val n = names.map { name -> (map[name] as? CborInt)?.value?.takeIf { it in 0..MAX_DAY } ?: return Parsed.Invalid("$name must be a whole number") }.map { it.toInt() }
-        return Parsed.Ok(ConfigSettings(n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8]))
+        val base = ConfigSettings(n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8])
+        // Events written before ADR 0085 have none of the six per-kind fields and keep the defaults; otherwise all six are required.
+        val present = CLASS_RULE_KEYS.count { it in map.entries.keys }
+        if (present == 0) return Parsed.Ok(base)
+        if (present != CLASS_RULE_KEYS.size) return Parsed.Invalid("the per-kind fields must all be present or all be absent")
+        val c = CLASS_RULE_KEYS.map { name -> (map[name] as? CborInt)?.value?.takeIf { it in 0..MAX_DAY } ?: return Parsed.Invalid("$name must be a whole number") }.map { it.toInt() }
+        if (c[3] > 1 || c[4] > 1 || c[5] > 1) return Parsed.Invalid("waiting flags must be 0 or 1")
+        return Parsed.Ok(base.copy(everydayLevel = c[0], valuableLevel = c[1], highValueLevel = c[2], everydayWaiting = c[3] == 1, valuableWaiting = c[4] == 1, highValueWaiting = c[5] == 1))
     }
 
     fun skillUpsert(v: SkillOffer): CborMap = CborMap.of(

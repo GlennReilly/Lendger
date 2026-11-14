@@ -85,6 +85,26 @@ class AccessPolicyTest {
     }
 
     @Test
+    fun theCirclesKindRulesChangeTheLevelAndWhoIsInTheWaitingPeriod() {
+        val s = standingWith(DEE, listOf(event(DEE, EventKind.DAMAGED_OR_LOST_UNREPORTED, daysAgo = 1)))
+        val rules = CFG.copy(classRules = CFG.classRules + (ItemClass.EVERYDAY to ItemClassRule(Tier.REGULAR, waiting = true)) + (ItemClass.VALUABLE to ItemClassRule(Tier.REGULAR, waiting = false)))
+        fun d(c: ItemClass, standing: Standing = s) = AccessPolicy.canBorrow(DEE, item(ALICE, c), rules, standing, emptyList(), TODAY)
+        val everyday = d(ItemClass.EVERYDAY)
+        assertIs<AccessDecision.NotYet>(everyday)
+        assertTrue(everyday.reasons.any { "waiting period" in it }, "everyday items are now in the waiting period")
+        val valuable = d(ItemClass.VALUABLE)
+        assertIs<AccessDecision.NotYet>(valuable)
+        assertTrue(valuable.howToUnlock.none { "waiting period" in it }, "valuable items are outside the waiting period, so only the level matters")
+        assertIs<AccessDecision.Eligible>(d(ItemClass.ESSENTIAL), "essentials are always open")
+        assertEquals("Essential and valuable items", unaffectedKindsText(rules))
+        assertEquals("Everyday and essential items", unaffectedKindsText(CFG))
+        assertTrue(CFG.validate().isEmpty() && rules.validate().isEmpty())
+        assertTrue(CFG.copy(classRules = CFG.classRules + (ItemClass.ESSENTIAL to ItemClassRule(Tier.REGULAR, false))).validate().isNotEmpty(), "essentials stay at Level 1")
+        assertTrue(CFG.copy(classRules = CFG.classRules + (ItemClass.ESSENTIAL to ItemClassRule(Tier.NEW, true))).validate().isNotEmpty(), "essentials are never in the waiting period")
+        assertTrue(CFG.copy(classRules = CFG.classRules + (ItemClass.HIGH_VALUE to ItemClassRule(Tier.STEWARD, true))).validate().isNotEmpty(), "Level 4 is not allowed")
+    }
+
+    @Test
     fun c7_trustedMemberIsAlsoHeldThenReleased() {
         val events = trustedHistory(BEA) + event(BEA, EventKind.DAMAGED_OR_LOST_UNREPORTED, daysAgo = 1)
         val during = standingWith(BEA, events)

@@ -1308,6 +1308,44 @@ class CircleAppEndToEndTest {
     }
 
     @Test
+    fun stewardsSetTheLevelAndWaitingPeriodOfEachKindOfItemAndRequestsFollowTheRulesInForce() = apiTest {
+        val transport = HttpTransport { method, path, body, token ->
+            api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }
+        }
+        val crypto = JvmCrypto()
+        val alice = browser(transport, crypto)
+        alice.app.open(); alice.app.startCircle(PASSPHRASE); alice.app.syncOnce()
+        val link = assertNotNull(alice.app.makeInvite()); alice.app.syncOnce()
+        val bea = browser(transport, crypto)
+        bea.app.open(); bea.app.join(link, PASSPHRASE); bea.app.syncOnce(); alice.app.syncOnce()
+        alice.app.admit(home(alice.app).waiting.single().device); alice.app.syncOnce(); bea.app.syncOnce()
+
+        val defaults = home(bea.app).rules.current
+        assertEquals(listOf(1, 2, 3), listOf(defaults.everydayLevel, defaults.valuableLevel, defaults.highValueLevel))
+        assertEquals(listOf(false, true, true), listOf(defaults.everydayWaiting, defaults.valuableWaiting, defaults.highValueWaiting))
+        val drill = (alice.app.addItem("Drill", ItemClass.VALUABLE, "") as ItemResult.Saved).item
+        alice.app.syncOnce(); bea.app.syncOnce()
+        assertIs<LoanResult.NotYet>(bea.app.requestLoan(drill, TODAY, TODAY + 1, ""), "a new member cannot ask for a valuable item by default")
+        // Refusals say what is wrong in full sentences; a member cannot propose.
+        assertEquals(RulesResult.NotAllowed, bea.app.proposeRules(defaults.copy(valuableLevel = 1)))
+        assertEquals(RulesResult.Refused(circles.event.ITEM_LEVELS_PROBLEM), alice.app.proposeRules(defaults.copy(highValueLevel = 4)))
+        assertEquals(RulesResult.Refused(circles.event.ITEM_LEVEL_ORDER_PROBLEM), alice.app.proposeRules(defaults.copy(everydayLevel = 3)))
+        // The lone steward lowers valuable items to Level 1; from that day a new member may ask.
+        assertEquals(RulesResult.Sent(takesEffect = true), alice.app.proposeRules(defaults.copy(valuableLevel = 1)))
+        alice.app.syncOnce(); bea.app.syncOnce()
+        assertEquals(1, home(bea.app).rules.current.valuableLevel)
+        assertIs<LoanResult.Done>(bea.app.requestLoan(drill, TODAY, TODAY + 1, ""))
+        // An owner's own bar still works above the class default and is ignored below it.
+        val raised = (alice.app.addItem("Saw", ItemClass.VALUABLE, "", circles.policy.Tier.TRUSTED) as ItemResult.Saved).item
+        val lowered = (alice.app.addItem("Hammer", ItemClass.VALUABLE, "", circles.policy.Tier.NEW) as ItemResult.Saved).item
+        alice.app.syncOnce(); bea.app.syncOnce()
+        assertEquals(circles.policy.Tier.TRUSTED, home(bea.app).items.single { it.item == raised }.ownerMinTier)
+        assertEquals(null, home(bea.app).items.single { it.item == lowered }.ownerMinTier)
+        assertIs<LoanResult.NotYet>(bea.app.requestLoan(raised, TODAY, TODAY + 1, ""))
+        listOf(alice, bea).forEach { assertEquals(0, assertNotNull(it.app.syncOnce()).refused) }
+    }
+
+    @Test
     fun anItemCannotBeLentTwiceForTheSameDaysAndARequestCanBeCancelled() = apiTest {
         val transport = HttpTransport { method, path, body, token ->
             api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }

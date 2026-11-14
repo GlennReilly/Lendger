@@ -140,4 +140,36 @@ class MarketPayloadsTest {
         assertIs<Parsed.Invalid>(MarketPayloads.parseResolution(CborMap(r - "outcome")))
         assertIs<Parsed.Invalid>(MarketPayloads.parseReturnConfirmation(CborMap(mapOf("loan" to CborText("nope")))))
     }
+
+    // ---- config.update per-kind fields (ADR 0085) ----
+
+    private val oldConfigKeys = listOf("regularTenths", "trustedTenths", "stewardTenths", "halfLifeDays", "vouchesForRegular", "vouchValidityDays", "reviewersForPause", "defaultPauseDays", "incidentCooldownDays")
+    private val oldConfig = ConfigSettings(30, 100, 300, 180, 2, 180, 3, 30, 90)
+
+    private fun oldMap(): Map<String, CborInt> = mapOf(
+        "regularTenths" to CborInt(30), "trustedTenths" to CborInt(100), "stewardTenths" to CborInt(300), "halfLifeDays" to CborInt(180),
+        "vouchesForRegular" to CborInt(2), "vouchValidityDays" to CborInt(180), "reviewersForPause" to CborInt(3), "defaultPauseDays" to CborInt(30), "incidentCooldownDays" to CborInt(90),
+    )
+
+    @Test
+    fun aConfigWithoutTheKindFieldsFoldsWithTheDefaultKindRules() {
+        val parsed = ok(MarketPayloads.parseConfigUpdate(CborMap(oldMap())))
+        assertEquals(oldConfig, parsed)
+        assertEquals(listOf(1, 2, 3), listOf(parsed.everydayLevel, parsed.valuableLevel, parsed.highValueLevel))
+        assertEquals(listOf(false, true, true), listOf(parsed.everydayWaiting, parsed.valuableWaiting, parsed.highValueWaiting))
+    }
+
+    @Test
+    fun theKindFieldsRoundTripAndAreStrict() {
+        val changed = oldConfig.copy(everydayLevel = 2, valuableLevel = 2, highValueLevel = 3, everydayWaiting = true, valuableWaiting = false, highValueWaiting = true)
+        assertEquals(changed, ok(MarketPayloads.parseConfigUpdate(MarketPayloads.configUpdate(changed))))
+        assertEquals(oldConfig, ok(MarketPayloads.parseConfigUpdate(MarketPayloads.configUpdate(oldConfig))))
+        val six = MarketPayloads.configUpdate(changed).entries
+        // some but not all of the six: refused
+        assertIs<Parsed.Invalid>(MarketPayloads.parseConfigUpdate(CborMap(oldMap() + ("everydayLevel" to CborInt(1)))))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseConfigUpdate(CborMap(six.filterKeys { it != "highValueWaiting" })))
+        // a flag that is not 0 or 1, and an unknown key: refused
+        assertIs<Parsed.Invalid>(MarketPayloads.parseConfigUpdate(CborMap(six + ("everydayWaiting" to CborInt(2)))))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseConfigUpdate(CborMap(six + ("essentialLevel" to CborInt(1)))))
+    }
 }

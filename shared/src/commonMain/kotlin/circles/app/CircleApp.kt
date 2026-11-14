@@ -134,6 +134,8 @@ data class StandingSummary(
     val howToUnlock: List<String>,
     /** Days left of a waiting period after an unreported incident (ADR 0084), or null when there is none. */
     val waitingDays: Int? = null,
+    /** The sentence that explains it, in this circle's own rules (ADR 0084, 0085). */
+    val waitingText: String? = null,
 )
 
 /** Whether this member may ask for an item, and if not why and how to change that. */
@@ -1789,7 +1791,7 @@ class CircleApp(
         name: String, itemClass: ItemClass, description: String, minTier: Tier? = null, photos: List<circles.event.ItemPhoto> = emptyList(),
     ): ItemResult {
         // An owner may raise the lowest tier above the class default, never lower it (ADR 0025).
-        val effectiveMin = minTier?.takeIf { it.rank > itemClass.minTier.rank }
+        val effectiveMin = minTier?.takeIf { it.rank > view.market.configOn(s.circle, today()).ruleOf(itemClass).minTier.rank }
         val mine = view.devices.values.filter { !it.revoked && it.registration.member == s.identity.member }.map { it.registration }
         val day = today()
         s.engine.enqueue(s.circle, s.author.itemUpsert(s.circle, day, item, name, itemClass, detailKeyId, itemKey, mine, effectiveMin, photos))
@@ -1843,6 +1845,7 @@ class CircleApp(
                     reasons = myStanding.reasons,
                     howToUnlock = unlockHints(myStanding, cfg),
                     waitingDays = myStanding.incidentUntilDay?.let { it - now },
+                    waitingText = myStanding.incidentUntilDay?.let { circles.policy.waitingPeriodSentence(it - now, cfg) },
                 ),
                 canVouch = StandingRules.mayVouch(me, cfg, loansNow, vouchesNow, view.stewards, now, view.market.contributions),
                 stewardCount = view.stewards.size,

@@ -88,6 +88,7 @@ One short file per decision that is hard to reverse, changes a rule, picks a tec
 | [0082](0082-dates-in-refusal-reasons.md) | Dates inside refusal reasons are placeholders the page fills in | Accepted |
 | [0083](0083-account-menu-in-the-header.md) | My level and Settings move into an account menu in the header | Accepted |
 | [0084](0084-waiting-period-wording.md) | The "hold" after an unreported incident is called a waiting period, and the pages explain it | Accepted |
+| [0085](0085-circle-sets-level-and-waiting-period-per-item-kind.md) | Stewards set each kind of item's level and waiting-period membership | Accepted |
 
 ## Open decisions still to record
 

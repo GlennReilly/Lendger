@@ -460,6 +460,14 @@ try {
   if (!(await buttonHidden(alice, 'steward-rules-form'))) throw new Error('rules button visible with two of four'); await setField(alice, 'steward-rules-form', 'fallback-days', '14');
   if (!(await buttonHidden(alice, 'steward-rules-form'))) throw new Error('rules button visible with three of four'); await setField(alice, 'steward-rules-form', 'recovery-threshold', '0');
   if (await buttonHidden(alice, 'steward-rules-form')) throw new Error('rules button hidden with all four'); ok('the rules button waits for all four numbers');
+  // Circle rules per kind of item (ADR 0085): the defaults are listed, an impossible order is refused in words, a valid change applies at once.
+  await until(alice, has(alice, 'Valuable items: Level 2, in the waiting period') + ' && ' + has(alice, 'Essential items: Level 1, always open, never in the waiting period') + ' && ' + has(alice, 'A waiting period starts by itself after an unreported incident'), 'kind rules listed');
+  await alice.evaluate(`document.getElementById('circle-rules-form').closest('details').open = true`); await checkAccessibility(alice, 'stewards with the circle rules form open');
+  await alice.evaluate(`document.getElementById('rules-level-everyday').value = '3'; document.getElementById('circle-rules-form').requestSubmit()`);
+  await until(alice, has(alice, 'A more valuable kind of item cannot need a lower level than a less valuable one.'), 'order refused');
+  await alice.evaluate(`document.getElementById('rules-level-everyday').value = '1'; document.getElementById('rules-level-valuable').value = '1'; document.getElementById('rules-wait-everyday').checked = true; document.getElementById('circle-rules-form').requestSubmit()`);
+  await until(alice, has(alice, 'The new circle rules apply from today.') + ' && ' + has(alice, 'Valuable items: Level 1, in the waiting period') + ' && ' + has(alice, 'Everyday items: Level 1, in the waiting period'), 'kind rules changed');
+  ok('Circle rules: the kind rules are listed, an out-of-order level is refused in words, and a change applies and is listed');
   await click(alice, 'steward-add'); await until(alice, has(alice, 'The steward change takes effect now.'), 'bea made steward'); await until(alice, has(alice, 'Steward since') , 'two stewards listed');
   ok('alice made bea a steward (a lone steward needs no one else to agree)');
   await syncUntil(bea, 'location.hash = "#/stewards"; ' + has(bea, 'Can vote from'), 'bea sees she is cooling off'); ok('bea, the new steward, sees when she can vote from');

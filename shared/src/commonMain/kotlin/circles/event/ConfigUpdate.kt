@@ -1,6 +1,8 @@
 package circles.event
 
 import circles.policy.CircleConfig
+import circles.policy.ItemClass
+import circles.policy.ItemClassRule
 import circles.policy.Tier
 
 private const val TENTHS = 10.0
@@ -17,6 +19,16 @@ const val MAX_VOUCH_VALIDITY_DAYS = 730
 const val MIN_REVIEWERS_FOR_PAUSE = 2
 const val MAX_REVIEWERS_FOR_PAUSE = 9
 const val MAX_INCIDENT_COOLDOWN_DAYS = 365
+
+/** The levels a kind of item may need (ADR 0085): Level 1, 2 or 3. Level 4 is the steward-only points tier and is not allowed. */
+const val MIN_ITEM_LEVEL = 1
+const val MAX_ITEM_LEVEL = 3
+const val ITEM_LEVELS_PROBLEM = "A kind of item can need Level 1, 2 or 3."
+const val ITEM_LEVEL_ORDER_PROBLEM = "A more valuable kind of item cannot need a lower level than a less valuable one."
+
+/** Level number (1..3) to the tier it stands for; the reverse is [levelOf]. */
+fun tierOfLevel(level: Int): Tier = when (level) { 1 -> Tier.NEW; 2 -> Tier.REGULAR; else -> Tier.TRUSTED }
+fun levelOf(tier: Tier): Int = tier.rank + 1
 
 /**
  * The circle rules a `config.update` may set (ADR 0051). Thresholds are in tenths of a point so the payload holds whole
@@ -35,6 +47,13 @@ data class ConfigSettings(
     val reviewersForPause: Int,
     val defaultPauseDays: Int,
     val incidentCooldownDays: Int,
+    /** Level (1..3) each kind of item needs, and whether it is in the waiting period (ADR 0085). Essential is fixed and not listed. */
+    val everydayLevel: Int = 1,
+    val valuableLevel: Int = 2,
+    val highValueLevel: Int = 3,
+    val everydayWaiting: Boolean = false,
+    val valuableWaiting: Boolean = true,
+    val highValueWaiting: Boolean = true,
 ) {
     /** The first thing wrong with these values, or null. Ranges first, then the library's own check on the resulting config. */
     fun problem(base: CircleConfig): String? = when {
@@ -45,6 +64,8 @@ data class ConfigSettings(
         reviewersForPause !in MIN_REVIEWERS_FOR_PAUSE..MAX_REVIEWERS_FOR_PAUSE -> "The reviewers needed for a pause must be from $MIN_REVIEWERS_FOR_PAUSE to $MAX_REVIEWERS_FOR_PAUSE."
         defaultPauseDays !in MIN_PAUSE_DAYS..MAX_PAUSE_DAYS -> "A pause can last from $MIN_PAUSE_DAYS to $MAX_PAUSE_DAYS days."
         incidentCooldownDays !in 0..MAX_INCIDENT_COOLDOWN_DAYS -> "The waiting period for higher-value items after an unreported incident can be 0 to $MAX_INCIDENT_COOLDOWN_DAYS days."
+        listOf(everydayLevel, valuableLevel, highValueLevel).any { it !in MIN_ITEM_LEVEL..MAX_ITEM_LEVEL } -> ITEM_LEVELS_PROBLEM
+        everydayLevel > valuableLevel || valuableLevel > highValueLevel -> ITEM_LEVEL_ORDER_PROBLEM
         // The library's own check speaks in identifiers; only the order of the thresholds can fail it here (ADR 0070).
         else -> applyTo(base).validate().firstOrNull()?.let { LEVEL_ORDER_PROBLEM }
     }
@@ -57,6 +78,12 @@ data class ConfigSettings(
         reviewersForPause = reviewersForPause,
         defaultPauseDays = defaultPauseDays,
         incidentCooldownDays = incidentCooldownDays,
+        classRules = mapOf(
+            ItemClass.ESSENTIAL to ItemClassRule(Tier.NEW, waiting = false),
+            ItemClass.EVERYDAY to ItemClassRule(tierOfLevel(everydayLevel), everydayWaiting),
+            ItemClass.VALUABLE to ItemClassRule(tierOfLevel(valuableLevel), valuableWaiting),
+            ItemClass.HIGH_VALUE to ItemClassRule(tierOfLevel(highValueLevel), highValueWaiting),
+        ),
     )
 
     companion object {
@@ -71,6 +98,12 @@ data class ConfigSettings(
             reviewersForPause = config.reviewersForPause,
             defaultPauseDays = config.defaultPauseDays,
             incidentCooldownDays = config.incidentCooldownDays,
+            everydayLevel = levelOf(config.ruleOf(ItemClass.EVERYDAY).minTier),
+            valuableLevel = levelOf(config.ruleOf(ItemClass.VALUABLE).minTier),
+            highValueLevel = levelOf(config.ruleOf(ItemClass.HIGH_VALUE).minTier),
+            everydayWaiting = config.ruleOf(ItemClass.EVERYDAY).waiting,
+            valuableWaiting = config.ruleOf(ItemClass.VALUABLE).waiting,
+            highValueWaiting = config.ruleOf(ItemClass.HIGH_VALUE).waiting,
         )
 
         private fun tenths(points: Double): Int = (points * TENTHS + ROUND_UP).toInt()

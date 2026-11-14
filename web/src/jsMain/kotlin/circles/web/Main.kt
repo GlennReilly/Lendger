@@ -542,8 +542,10 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
                     fun tenths(name: String): Int? = field(name).toDoubleOrNull()?.let { (it * 10 + 0.5).toInt() }
                     val numbers = listOf(tenths("rules-regular"), tenths("rules-trusted"), tenths("rules-steward")) +
                         listOf("rules-halflife", "rules-vouches", "rules-vouch-days", "rules-reviewers", "rules-pause-days", "rules-cooldown").map { field(it).toIntOrNull() }
-                    if (numbers.any { it == null }) dispatch(AppAction.Notice("Fill in every number of the circle rules."))
-                    else reportRules(circleApp.proposeRules(rulesOf(numbers.map { it!! })))
+                    val extra = listOf(RULES_LEVEL_EVERYDAY, RULES_LEVEL_VALUABLE, RULES_LEVEL_HIGH_VALUE).map { field(it).toIntOrNull() } +
+                        listOf(RULES_WAIT_EVERYDAY, RULES_WAIT_VALUABLE, RULES_WAIT_HIGH_VALUE).map { if ((form.elements.namedItem(it) as? HTMLInputElement)?.checked == true) 1 else 0 }
+                    if (numbers.any { it == null } || extra.any { it == null }) dispatch(AppAction.Notice("Fill in every number of the circle rules."))
+                    else reportRules(circleApp.proposeRules(rulesOf((numbers + extra).map { it!! })))
                 }
                 FORM_PAUSE_PROPOSE -> dispatch(
                     AppAction.Notice(
@@ -840,7 +842,7 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
                     ExportResult.Incomplete -> dispatch(AppAction.Notice("This device does not have the whole log yet. Press Sync now, then try again."))
                     ExportResult.NotAllowed, null -> dispatch(AppAction.Notice("Sign in to the circle before exporting it."))
                 }
-                ACTION_RULES_AGREE -> target.getAttribute(ATTR_RULES)?.split(':')?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 9 }?.let {
+                ACTION_RULES_AGREE -> target.getAttribute(ATTR_RULES)?.split(':')?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 15 }?.let {
                     reportRules(circleApp?.proposeRules(rulesOf(it)) ?: RulesResult.NotAllowed)
                 }
                 ACTION_NOTE_CONFIRM -> target.getAttribute(ATTR_NOTE_ID)?.let { id ->
@@ -1031,7 +1033,7 @@ private fun pauseText(result: PauseResult, done: String): String = when (result)
     PauseResult.NotAllowed -> "The pause step could not be done right now. Try syncing, then try again."
 }
 
-private fun rulesOf(n: List<Int>) = circles.event.ConfigSettings(n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8])
+private fun rulesOf(n: List<Int>) = circles.event.ConfigSettings(n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8], n[9], n[10], n[11], n[12] == 1, n[13] == 1, n[14] == 1)
 
 private fun tierOrNull(name: String): circles.policy.Tier? = circles.policy.Tier.entries.firstOrNull { it.name == name }
 

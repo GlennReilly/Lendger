@@ -858,6 +858,53 @@ abstract class MarketContract {
     }
 
     @Test
+    fun theDefaultKindRulesAreTheOnesTheLibraryAlwaysHad() = runTest {
+        val w = World(newCrypto(), newCipher())
+        val d = w.defaults()
+        assertEquals(listOf(1, 2, 3), listOf(d.everydayLevel, d.valuableLevel, d.highValueLevel))
+        assertEquals(listOf(false, true, true), listOf(d.everydayWaiting, d.valuableWaiting, d.highValueWaiting))
+        assertEquals(d, ConfigSettings.of(d.applyTo(StandingRules.defaultConfig(w.circle))))
+    }
+
+    @Test
+    fun aKindRuleChangeAppliesFromItsDayAndOldRequestsAreJudgedByTheRulesOfThatDay() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 1))
+        val (valuable, _) = w.share(w.founder, ItemClass.VALUABLE)
+        // Carol has no points and no vouches (Level 1); a valuable item needs Level 2 until the circle lowers it on DAY + 10.
+        w.log += w.founder.configUpdate(w.circle, DAY + 10, w.defaults().copy(valuableLevel = 1))
+        val before = w.requestOf(w.carol, valuable, DAY + 9)
+        val after = w.requestOf(w.carol, valuable, DAY + 10)
+        w.log += listOf(before, after)
+        val view = w.foldAs(w.founder)
+        val reasons = view.rejected.associate { it.id to it.reason }
+        assertTrue(before.eventId(w.crypto) in reasons, "judged by the rules of its own day")
+        assertTrue(after.eventId(w.crypto) !in reasons, "allowed from the day the rule changed")
+        assertEquals(1, ConfigSettings.of(view.market.configOn(w.circle, DAY + 10)).valuableLevel)
+        assertEquals(2, ConfigSettings.of(view.market.configOn(w.circle, DAY + 9)).valuableLevel)
+    }
+
+    @Test
+    fun kindRulesAreRefusedWhenOutOfRangeOrOutOfOrderAndNeedTheQuorum() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 2))
+        w.log += w.founder.stewardAdd(w.circle, w.bea.identity.member, DAY)
+        val d = w.defaults()
+        fun rejected(settings: ConfigSettings) = w.reasons(listOf(w.founder.configUpdate(w.circle, DAY, settings)))
+        assertEquals(listOf(ITEM_LEVELS_PROBLEM), rejected(d.copy(highValueLevel = 4)))
+        assertEquals(listOf(ITEM_LEVELS_PROBLEM), rejected(d.copy(everydayLevel = 0)))
+        assertEquals(listOf(ITEM_LEVEL_ORDER_PROBLEM), rejected(d.copy(everydayLevel = 3)))
+        assertEquals(listOf(ITEM_LEVEL_ORDER_PROBLEM), rejected(d.copy(valuableLevel = 3, highValueLevel = 2)))
+        // One steward of two is only a proposal; the same numbers from the second take effect.
+        val wanted = d.copy(everydayWaiting = true, highValueLevel = 3, valuableLevel = 3)
+        w.log += w.founder.configUpdate(w.circle, DAY + 7, wanted)
+        assertEquals(emptyList(), w.foldAs(w.founder).market.configs)
+        val view = w.foldAs(w.founder, w.log + w.bea.configUpdate(w.circle, DAY + 8, wanted))
+        assertEquals(listOf(ConfigVersion(DAY + 8, wanted)), view.market.configs)
+        assertTrue(ConfigSettings.of(view.market.configOn(w.circle, DAY + 8)).everydayWaiting)
+    }
+
+    @Test
     fun configRulesRefuseNonStewardsBadValuesAndNoChange() = runTest {
         val w = World(newCrypto(), newCipher())
         w.start(StewardSettings(quorum = 1))

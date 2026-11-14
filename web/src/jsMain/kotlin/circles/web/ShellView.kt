@@ -6,12 +6,14 @@ import circles.app.HistoryEntry
 import circles.app.HistoryOutcome
 import circles.app.LoanHistory
 import circles.policy.WAITING_PERIOD_NOT_A_PAUSE
-import circles.policy.waitingPeriodSentence
 import circles.policy.ItemId
 import circles.app.AppModel
 import circles.app.HomeData
 import circles.app.MemberSummary
 import circles.app.WaitingDevice
+import circles.event.MAX_ITEM_LEVEL
+import circles.event.MIN_ITEM_LEVEL
+import circles.event.tierOfLevel
 import circles.event.MAX_DISPLAY_NAME_CODE_POINTS
 import circles.policy.MemberId
 import circles.app.PauseHistoryEntry
@@ -145,6 +147,12 @@ const val FIELD_MIN_TIER = "min-tier"
 const val FORM_RULES = "circle-rules-form"
 const val ACTION_RULES_AGREE = "rules-agree"
 const val ATTR_RULES = "data-rules"
+const val RULES_LEVEL_EVERYDAY = "rules-level-everyday"
+const val RULES_LEVEL_VALUABLE = "rules-level-valuable"
+const val RULES_LEVEL_HIGH_VALUE = "rules-level-high-value"
+const val RULES_WAIT_EVERYDAY = "rules-wait-everyday"
+const val RULES_WAIT_VALUABLE = "rules-wait-valuable"
+const val RULES_WAIT_HIGH_VALUE = "rules-wait-high-value"
 const val FIELD_DETAILS = "details"
 const val ATTR_ITEM = "data-item"
 const val ATTR_MIN = "data-min"
@@ -1759,6 +1767,18 @@ private fun FlowContent.restoreButton(item: ItemId) {
     }
 }
 
+private fun waitingText(on: Boolean): String = if (on) "in the waiting period" else "not in the waiting period"
+
+/** One line per kind of item for the Circle rules list (ADR 0085). */
+private fun classRuleLines(s: circles.event.ConfigSettings): List<String> = listOf(
+    "Everyday items: ${TierText.label(tierOfLevel(s.everydayLevel))}, ${waitingText(s.everydayWaiting)}",
+    "Valuable items: ${TierText.label(tierOfLevel(s.valuableLevel))}, ${waitingText(s.valuableWaiting)}",
+    "High-value items: ${TierText.label(tierOfLevel(s.highValueLevel))}, ${waitingText(s.highValueWaiting)}",
+)
+
+private fun classRuleSummary(s: circles.event.ConfigSettings): String =
+    "everyday ${TierText.label(tierOfLevel(s.everydayLevel))} (${waitingText(s.everydayWaiting)}), valuable ${TierText.label(tierOfLevel(s.valuableLevel))} (${waitingText(s.valuableWaiting)}), high-value ${TierText.label(tierOfLevel(s.highValueLevel))} (${waitingText(s.highValueWaiting)})"
+
 /** What an owner sees for an archived item whose name this device cannot read. */
 const val UNREADABLE_ITEM_NAME = "An archived item"
 
@@ -2079,15 +2099,15 @@ private fun FlowContent.standing(standing: StandingSummary?, home: HomeData? = n
     p { +"Your level: ${TierText.number(standing.tier)}" }
     p { +"Your points: ${standing.points}" }
     p { +"Your level is local to this circle. It rises as you lend and borrow well, and fades slowly if you are quiet. It never drops below ${TierText.label(Tier.NEW)}, and nobody is ever banned for a low level." }
-    val waiting = standing.waitingDays
+    val waiting = standing.waitingText
     if (waiting != null) section {
         h2 { +"Waiting period" }
-        p { +waitingPeriodSentence(waiting) }
+        p { +waiting }
         p { +WAITING_PERIOD_NOT_A_PAUSE }
     }
     section {
         h2 { +"Why" }
-        ul { for (reason in standing.reasons.filter { waiting == null || it != waitingPeriodSentence(waiting) }) li { +reason } }
+        ul { for (reason in standing.reasons.filter { waiting == null || it != waiting }) li { +reason } }
     }
     section {
         h2 { +"How to unlock more" }
@@ -2227,16 +2247,21 @@ private fun FlowContent.stewards(home: HomeData) {
             li { +"Waiting period for higher-value items after an unreported incident: ${now.incidentCooldownDays} days" }
         }
         p { +WAITING_PERIOD_NOT_A_PAUSE }
+        h3 { +"What each kind of item needs" }
+        ul {
+            li { +"Essential items: ${TierText.label(Tier.NEW)}, always open, never in the waiting period" }
+            for (line in classRuleLines(now)) li { +line }
+        }
         p { +"A change applies from the day enough stewards agree. Things decided before then keep the rules they were decided under." }
         for (proposal in rules.proposals) {
             val s = proposal.settings
             p {
-                +"Proposed: points for levels ${TierText.number(Tier.REGULAR)}, ${TierText.number(Tier.TRUSTED)} and ${TierText.number(Tier.STEWARD)} ${tenthsText(s.regularTenths)} / ${tenthsText(s.trustedTenths)} / ${tenthsText(s.stewardTenths)}, half-life ${s.halfLifeDays}, vouches ${s.vouchesForRegular} for ${s.vouchValidityDays} days, pause reviewers ${s.reviewersForPause} for ${s.defaultPauseDays} days, waiting period after an incident ${s.incidentCooldownDays} days. ${proposal.agreeing} of ${proposal.needed} stewards agree."
+                +"Proposed: points for levels ${TierText.number(Tier.REGULAR)}, ${TierText.number(Tier.TRUSTED)} and ${TierText.number(Tier.STEWARD)} ${tenthsText(s.regularTenths)} / ${tenthsText(s.trustedTenths)} / ${tenthsText(s.stewardTenths)}, half-life ${s.halfLifeDays}, vouches ${s.vouchesForRegular} for ${s.vouchValidityDays} days, pause reviewers ${s.reviewersForPause} for ${s.defaultPauseDays} days, waiting period after an incident ${s.incidentCooldownDays} days, ${classRuleSummary(s)}. ${proposal.agreeing} of ${proposal.needed} stewards agree."
             }
             if (proposal.canAgree) {
                 button(type = ButtonType.button) {
                     attributes[ATTR_ACTION] = ACTION_RULES_AGREE
-                    attributes[ATTR_RULES] = listOf(s.regularTenths, s.trustedTenths, s.stewardTenths, s.halfLifeDays, s.vouchesForRegular, s.vouchValidityDays, s.reviewersForPause, s.defaultPauseDays, s.incidentCooldownDays).joinToString(":")
+                    attributes[ATTR_RULES] = listOf(s.regularTenths, s.trustedTenths, s.stewardTenths, s.halfLifeDays, s.vouchesForRegular, s.vouchValidityDays, s.reviewersForPause, s.defaultPauseDays, s.incidentCooldownDays, s.everydayLevel, s.valuableLevel, s.highValueLevel, if (s.everydayWaiting) 1 else 0, if (s.valuableWaiting) 1 else 0, if (s.highValueWaiting) 1 else 0).joinToString(":")
                     +"Agree to these rules"
                 }
             }
@@ -2271,6 +2296,41 @@ private fun FlowContent.stewards(home: HomeData) {
                             this.value = value
                         }
                     }
+                    for ((field, label, level) in listOf(
+                        Triple(RULES_LEVEL_EVERYDAY, "Level needed for everyday items: ", now.everydayLevel),
+                        Triple(RULES_LEVEL_VALUABLE, "Level needed for valuable items: ", now.valuableLevel),
+                        Triple(RULES_LEVEL_HIGH_VALUE, "Level needed for high-value items: ", now.highValueLevel),
+                    )) {
+                        label {
+                            attributes["for"] = field
+                            +label
+                        }
+                        select {
+                            id = field
+                            name = field
+                            for (n in MIN_ITEM_LEVEL..MAX_ITEM_LEVEL) option {
+                                value = n.toString()
+                                selected = n == level
+                                +TierText.label(tierOfLevel(n))
+                            }
+                        }
+                    }
+                    for ((field, label, on) in listOf(
+                        Triple(RULES_WAIT_EVERYDAY, "Everyday items are in the waiting period", now.everydayWaiting),
+                        Triple(RULES_WAIT_VALUABLE, "Valuable items are in the waiting period", now.valuableWaiting),
+                        Triple(RULES_WAIT_HIGH_VALUE, "High-value items are in the waiting period", now.highValueWaiting),
+                    )) div {
+                        classes = setOf("check-row")
+                        input(type = InputType.checkBox, name = field) {
+                            id = field
+                            checked = on
+                        }
+                        label {
+                            attributes["for"] = field
+                            +label
+                        }
+                    }
+                    p { +"Essential items stay at ${TierText.label(Tier.NEW)} and are never in the waiting period. A more valuable kind cannot need a lower level than a less valuable one." }
                     formSubmit("Propose these rules", ready = true)
                 }
             }

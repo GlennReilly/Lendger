@@ -58,7 +58,10 @@ data class Member(val id: MemberId, val name: String)
 
 enum class Tier(val rank: Int) { NEW(0), REGULAR(1), TRUSTED(2), STEWARD(3) }
 
-/** What kind of thing is being shared. Drives the minimum tier needed. */
+/** What a circle requires for one kind of item: the lowest level that may ask, and whether the waiting period after an incident applies (ADR 0085). */
+data class ItemClassRule(val minTier: Tier, val waiting: Boolean)
+
+/** What kind of thing is being shared. Drives the minimum tier needed. The values here are the defaults; a circle may change them (ADR 0085). */
 enum class ItemClass(val minTier: Tier, val heldDuringCooldown: Boolean) {
     ESSENTIAL(Tier.NEW, heldDuringCooldown = false),   // ladder, jump leads: always open to members
     EVERYDAY(Tier.NEW, heldDuringCooldown = false),    // crockpot, air mattress
@@ -115,6 +118,8 @@ data class CircleConfig(
     val defaultPauseDays: Int = DEFAULT_PAUSE_DAYS,
     /** After an unreported incident, higher-value items are in a waiting period this long, in days (C7). */
     val incidentCooldownDays: Int = DEFAULT_INCIDENT_COOLDOWN_DAYS,
+    /** Per kind of item: the lowest level and whether the waiting period applies. Essential is fixed: always Level 1, never in the waiting period (ADR 0085). */
+    val classRules: Map<ItemClass, ItemClassRule> = ItemClass.entries.associateWith { ItemClassRule(it.minTier, it.heldDuringCooldown) },
     /** Positive events with the same counterpart are credited at most this often per window (C8). */
     val maxCreditedPerCounterpart: Int = DEFAULT_MAX_CREDITED_PER_COUNTERPART,
     val counterpartWindowDays: Int = DEFAULT_COUNTERPART_WINDOW_DAYS,
@@ -122,6 +127,9 @@ data class CircleConfig(
     val weights: Map<EventKind, Double> = EventKind.entries.associateWith { it.weight }
 ) {
     fun weightOf(kind: EventKind): Double = weights[kind] ?: kind.weight
+
+    /** The rule for a kind of item in this circle; a missing entry falls back to the default. */
+    fun ruleOf(kind: ItemClass): ItemClassRule = classRules[kind] ?: ItemClassRule(kind.minTier, kind.heldDuringCooldown)
 
     /** Returns a list of problems; empty means the config is usable (C5). */
     fun validate(): List<String> = buildList {
@@ -141,6 +149,10 @@ data class CircleConfig(
         if (incidentCooldownDays < 0) add("incidentCooldownDays must not be negative")
         if (maxCreditedPerCounterpart < 1) add("maxCreditedPerCounterpart must be at least 1")
         if (counterpartWindowDays <= 0) add("counterpartWindowDays must be positive")
+        val essential = ruleOf(ItemClass.ESSENTIAL)
+        if (essential.minTier != Tier.NEW || essential.waiting) add("Essential items must stay at Level 1 and outside the waiting period")
+        val order = ItemClass.entries.map { ruleOf(it).minTier }
+        if (order.any { it.rank > Tier.TRUSTED.rank } || order.zipWithNext().any { (a, b) -> b.rank < a.rank }) add("item levels must not fall from Essential to High-value, and may not be above Level 3")
     }
 
     /** Use at fold time: a bad config from the log must not break everyone's app. */
@@ -195,9 +207,22 @@ data class Standing(
 )
 
 /** The one sentence that explains an active waiting period (ADR 0084): shown on My level and among the reasons. */
-fun waitingPeriodSentence(daysLeft: Int): String =
+fun waitingPeriodSentence(daysLeft: Int, cfg: CircleConfig = CircleConfig(CircleId(""), "")): String =
     "A recent unreported incident means a waiting period of ${if (daysLeft == 1) "1 more day" else "$daysLeft more days"} before you can borrow higher-value items. " +
-        "Everyday and essential items are not affected, and your level does not change."
+        "${unaffectedKindsText(cfg)} are not affected, and your level does not change."
+
+private val KIND_NAMES = listOf(ItemClass.EVERYDAY to "everyday", ItemClass.ESSENTIAL to "essential", ItemClass.VALUABLE to "valuable", ItemClass.HIGH_VALUE to "high-value")
+
+/** The kinds of item the waiting period does not touch in this circle, as "Everyday and essential items" (ADR 0085). */
+fun unaffectedKindsText(cfg: CircleConfig): String {
+    val open = KIND_NAMES.filter { !cfg.ruleOf(it.first).waiting }.map { it.second }
+    val joined = when (open.size) {
+        1 -> open[0]
+        2 -> "${open[0]} and ${open[1]}"
+        else -> open.dropLast(1).joinToString(", ") + " and " + open.last()
+    }
+    return joined.replaceFirstChar { it.uppercase() } + " items"
+}
 
 /** Said once beside the waiting period: it is automatic, unlike a pause (ADR 0084). */
 const val WAITING_PERIOD_NOT_A_PAUSE = "A waiting period starts by itself after an unreported incident and ends by itself. A pause is different: members vote on it."
@@ -273,7 +298,7 @@ object StandingCalculator {
         val until = latestIncident?.plus(cfg.incidentCooldownDays)
         val incidentUntil = if (until != null && until > today) until else null
         if (incidentUntil != null) {
-            reasons += waitingPeriodSentence(incidentUntil - today)
+            reasons += waitingPeriodSentence(incidentUntil - today, cfg)
         }
 
         return Standing(points, tier, reasons, incidentUntil)
@@ -385,19 +410,19 @@ object AccessPolicy {
 
         // 4. Incident cooldown holds higher-value items only (C7).
         val cooldownEnds = standing.incidentUntilDay
-        if (item.itemClass.heldDuringCooldown && cooldownEnds != null && cooldownEnds > today) {
+        if (circle.ruleOf(item.itemClass).waiting && cooldownEnds != null && cooldownEnds > today) {
             val daysLeft = cooldownEnds - today
             return AccessDecision.NotYet(
                 standing.reasons + "${item.name} is in a waiting period for ${if (daysLeft == 1) "1 more day" else "$daysLeft more days"} after an unreported incident.",
                 listOf(
-                    "Everyday items and essentials are still open to you.",
+                    "${unaffectedKindsText(circle)} are still open to you.",
                     "The waiting period ends by itself in ${if (daysLeft == 1) "1 day" else "$daysLeft days"}. It is not a ban, and it is not a pause that members voted on."
                 )
             )
         }
 
         // 5. Tier check. Owner may raise the bar for their own item, never lower it.
-        val needed = maxOf(item.itemClass.minTier, item.ownerMinTier ?: Tier.NEW, compareBy { it.rank })
+        val needed = maxOf(circle.ruleOf(item.itemClass).minTier, item.ownerMinTier ?: Tier.NEW, compareBy { it.rank })
         if (standing.tier.rank >= needed.rank) {
             return AccessDecision.Eligible(
                 standing.reasons + "You are at ${TierText.label(standing.tier)}, which is what ${item.name} needs (${TierText.orAbove(needed)})."

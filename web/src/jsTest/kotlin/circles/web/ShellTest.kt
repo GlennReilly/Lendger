@@ -275,7 +275,7 @@ class ShellViewTest {
                 assertTrue(match.groupValues[1].endsWith(": "), "label text was '${match.groupValues[1]}'")
             }
         }
-        assertEquals(8 + 3 + 1 + 3 + 2 + 4 + 4 + 9 + 1 - 1 + 2 + 2 + 1, labels) // + the name on Settings and on the first-name page (ADR 0068) + the date format on Settings (ADR 0080)
+        assertEquals(8 + 3 + 1 + 3 + 2 + 4 + 4 + 9 + 1 - 1 + 2 + 2 + 1 + 3, labels) // + the name on Settings and on the first-name page (ADR 0068) + the date format on Settings (ADR 0080)
     }
 
     @Test fun everyPassphraseButtonStartsHiddenUntilThePassphraseIsLongEnough() {
@@ -665,7 +665,7 @@ class ShellViewTest {
     }
 
     @Test fun anActiveWaitingPeriodIsExplainedOnMyLevelAndLeftOutOfTheReasonsList() {
-        val waiting = StandingSummary(Tier.REGULAR, "0.0", listOf(circles.policy.waitingPeriodSentence(12), "Your activity in this circle gives you 0.0 points."), emptyList(), waitingDays = 12)
+        val waiting = StandingSummary(Tier.REGULAR, "0.0", listOf(circles.policy.waitingPeriodSentence(12), "Your activity in this circle gives you 0.0 points."), emptyList(), waitingDays = 12, waitingText = circles.policy.waitingPeriodSentence(12))
         val html = render(open(home().copy(standing = waiting)).copy(screen = Screen.Standing))
         assertTrue("Waiting period" in html)
         assertEquals(1, Regex("a waiting period of 12 more days before you can borrow higher-value items").findAll(html).count(), "said once, not again under Why")
@@ -1193,11 +1193,27 @@ class ShellViewTest {
         assertTrue("Proposed: points for levels 2, 3 and 4 3.0 / 10.0 / 25.0," in html)
         assertTrue("Points fade by half every 180 days" in html)
         assertTrue("1 of 2 stewards agree." in html)
-        assertTrue("""$ATTR_ACTION="$ACTION_RULES_AGREE" $ATTR_RULES="30:100:250:90:2:180:3:30:90"""" in html)
+        assertTrue("""$ATTR_ACTION="$ACTION_RULES_AGREE" $ATTR_RULES="30:100:250:90:2:180:3:30:90:1:2:3:0:1:1"""" in html)
         assertTrue("Things decided before then keep the rules they were decided under." in html)
         assertTrue("""id="$FORM_RULES"""" in html)
         val voted = circles.app.RulesProposal(changed, 1, 2, iAgree = true, canAgree = false)
         assertFalse(ACTION_RULES_AGREE in render(open(home().copy(rules = summary.copy(proposals = listOf(voted)))).copy(screen = Screen.Stewards)))
+    }
+
+    @Test fun theCircleRulesShowWhatEachKindOfItemNeedsAndStewardsCanProposeChanges() {
+        val changed = defaultRules.copy(everydayLevel = 2, valuableLevel = 2, highValueLevel = 3, everydayWaiting = true, valuableWaiting = false)
+        val member = render(open(home(steward = false).copy(rules = circles.app.RulesSummary(changed))).copy(screen = Screen.Stewards))
+        assertTrue("Essential items: Level 1, always open, never in the waiting period" in member)
+        assertTrue("Everyday items: Level 2, in the waiting period" in member)
+        assertTrue("Valuable items: Level 2, not in the waiting period" in member)
+        assertTrue("High-value items: Level 3, in the waiting period" in member)
+        assertFalse(RULES_LEVEL_VALUABLE in member, "members cannot propose")
+        val steward = render(open(home().copy(rules = circles.app.RulesSummary(changed))).copy(screen = Screen.Stewards))
+        for (field in listOf(RULES_LEVEL_EVERYDAY, RULES_LEVEL_VALUABLE, RULES_LEVEL_HIGH_VALUE, RULES_WAIT_EVERYDAY, RULES_WAIT_VALUABLE, RULES_WAIT_HIGH_VALUE)) assertTrue("""id="$field"""" in steward, field)
+        assertTrue("Level needed for valuable items: " in steward)
+        assertTrue("Essential items stay at Level 1 and are never in the waiting period." in steward)
+        assertFalse(">Level 4<" in steward, "the steward-only level is not offered for items")
+        assertTrue("A waiting period starts by itself after an unreported incident and ends by itself. A pause is different: members vote on it." in steward)
     }
 
     @Test fun aMemberWhoIsNotAStewardSeesTheRulesButNoForm() {
