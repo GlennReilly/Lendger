@@ -5,6 +5,8 @@ import circles.app.HistoryDispute
 import circles.app.HistoryEntry
 import circles.app.HistoryOutcome
 import circles.app.LoanHistory
+import circles.policy.WAITING_PERIOD_NOT_A_PAUSE
+import circles.policy.waitingPeriodSentence
 import circles.policy.ItemId
 import circles.app.AppModel
 import circles.app.HomeData
@@ -2077,9 +2079,15 @@ private fun FlowContent.standing(standing: StandingSummary?, home: HomeData? = n
     p { +"Your level: ${TierText.number(standing.tier)}" }
     p { +"Your points: ${standing.points}" }
     p { +"Your level is local to this circle. It rises as you lend and borrow well, and fades slowly if you are quiet. It never drops below ${TierText.label(Tier.NEW)}, and nobody is ever banned for a low level." }
+    val waiting = standing.waitingDays
+    if (waiting != null) section {
+        h2 { +"Waiting period" }
+        p { +waitingPeriodSentence(waiting) }
+        p { +WAITING_PERIOD_NOT_A_PAUSE }
+    }
     section {
         h2 { +"Why" }
-        ul { for (reason in standing.reasons) li { +reason } }
+        ul { for (reason in standing.reasons.filter { waiting == null || it != waitingPeriodSentence(waiting) }) li { +reason } }
     }
     section {
         h2 { +"How to unlock more" }
@@ -2216,13 +2224,14 @@ private fun FlowContent.stewards(home: HomeData) {
             li { +"Points fade by half every ${now.halfLifeDays} days" }
             li { +"Vouches needed to reach ${TierText.label(Tier.REGULAR)}: ${now.vouchesForRegular}, each lasting up to ${now.vouchValidityDays} days" }
             li { +"Reviewers needed for a pause: ${now.reviewersForPause}; a pause lasts ${now.defaultPauseDays} days unless chosen otherwise" }
-            li { +"Days higher-value items are on hold after an unreported incident: ${now.incidentCooldownDays}" }
+            li { +"Waiting period for higher-value items after an unreported incident: ${now.incidentCooldownDays} days" }
         }
+        p { +WAITING_PERIOD_NOT_A_PAUSE }
         p { +"A change applies from the day enough stewards agree. Things decided before then keep the rules they were decided under." }
         for (proposal in rules.proposals) {
             val s = proposal.settings
             p {
-                +"Proposed: points for levels ${TierText.number(Tier.REGULAR)}, ${TierText.number(Tier.TRUSTED)} and ${TierText.number(Tier.STEWARD)} ${tenthsText(s.regularTenths)} / ${tenthsText(s.trustedTenths)} / ${tenthsText(s.stewardTenths)}, half-life ${s.halfLifeDays}, vouches ${s.vouchesForRegular} for ${s.vouchValidityDays} days, pause reviewers ${s.reviewersForPause} for ${s.defaultPauseDays} days, cooldown ${s.incidentCooldownDays}. ${proposal.agreeing} of ${proposal.needed} stewards agree."
+                +"Proposed: points for levels ${TierText.number(Tier.REGULAR)}, ${TierText.number(Tier.TRUSTED)} and ${TierText.number(Tier.STEWARD)} ${tenthsText(s.regularTenths)} / ${tenthsText(s.trustedTenths)} / ${tenthsText(s.stewardTenths)}, half-life ${s.halfLifeDays}, vouches ${s.vouchesForRegular} for ${s.vouchValidityDays} days, pause reviewers ${s.reviewersForPause} for ${s.defaultPauseDays} days, waiting period after an incident ${s.incidentCooldownDays} days. ${proposal.agreeing} of ${proposal.needed} stewards agree."
             }
             if (proposal.canAgree) {
                 button(type = ButtonType.button) {
@@ -2247,7 +2256,7 @@ private fun FlowContent.stewards(home: HomeData) {
                         Quad("rules-vouch-days", "Days a vouch lasts: ", "1", now.vouchValidityDays.toString()),
                         Quad("rules-reviewers", "Reviewers needed for a pause: ", "1", now.reviewersForPause.toString()),
                         Quad("rules-pause-days", "Days a pause lasts: ", "1", now.defaultPauseDays.toString()),
-                        Quad("rules-cooldown", "Days on hold after an incident: ", "1", now.incidentCooldownDays.toString()),
+                        Quad("rules-cooldown", "Waiting period for higher-value items after an unreported incident (days): ", "1", now.incidentCooldownDays.toString()),
                     )) {
                         label {
                             attributes["for"] = field

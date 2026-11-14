@@ -107,4 +107,20 @@ class StandaloneWordsSourceScanTest {
         assertTrue(makeVerb.containsMatchIn("Make an invite link") && makeVerb.containsMatchIn("You can make 3 more") && makeVerb.containsMatchIn("Making a code"))
         assertTrue(!makeVerb.containsMatchIn("Create an invite link") && !makeVerb.containsMatchIn("Those 12 words do not remake"))
     }
+
+    /** ADR 0084: the term is "waiting period"; "on hold", "the hold" and "cooldown" are not shown to people. Identifiers keep the old names. */
+    private val holdWords = Regex("""(?i)\bon hold\b|\bthe hold\b|\bhold ends\b|\bcool-?down\b""")
+
+    @Test
+    fun noMessageOrLabelSaysHoldOrCooldownForTheWaitingPeriod() {
+        val files = scanned.map { File(root, it) }.filter { it.isDirectory }
+            .flatMap { dir -> dir.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList() }
+        val found = files.flatMap { file ->
+            file.readLines().withIndex()
+                .filter { (_, line) -> line.trimStart().let { !it.startsWith("//") && !it.startsWith("*") && !it.startsWith("/**") } }
+                .flatMap { (index, line) -> literal.findAll(line).filter { !it.groupValues[1].matches(Regex("[a-z0-9-]+")) && holdWords.containsMatchIn(it.groupValues[1]) }.map { "${file.relativeTo(root)}:${index + 1}: ${it.value}" }.toList() }
+        }
+        assertTrue(found.isEmpty(), "Say waiting period (ADR 0084):\n" + found.joinToString("\n"))
+        assertTrue(holdWords.containsMatchIn("higher-value items are on hold") && holdWords.containsMatchIn("The hold ends in 3 days") && holdWords.containsMatchIn("incident cooldown"))
+    }
 }

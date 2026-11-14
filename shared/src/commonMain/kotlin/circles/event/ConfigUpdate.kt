@@ -44,7 +44,7 @@ data class ConfigSettings(
         vouchValidityDays !in MIN_VOUCH_VALIDITY_DAYS..MAX_VOUCH_VALIDITY_DAYS -> "A vouch can last from $MIN_VOUCH_VALIDITY_DAYS to $MAX_VOUCH_VALIDITY_DAYS days."
         reviewersForPause !in MIN_REVIEWERS_FOR_PAUSE..MAX_REVIEWERS_FOR_PAUSE -> "The reviewers needed for a pause must be from $MIN_REVIEWERS_FOR_PAUSE to $MAX_REVIEWERS_FOR_PAUSE."
         defaultPauseDays !in MIN_PAUSE_DAYS..MAX_PAUSE_DAYS -> "A pause can last from $MIN_PAUSE_DAYS to $MAX_PAUSE_DAYS days."
-        incidentCooldownDays !in 0..MAX_INCIDENT_COOLDOWN_DAYS -> "Higher-value items can be on hold for 0 to $MAX_INCIDENT_COOLDOWN_DAYS days after an unreported incident."
+        incidentCooldownDays !in 0..MAX_INCIDENT_COOLDOWN_DAYS -> "The waiting period for higher-value items after an unreported incident can be 0 to $MAX_INCIDENT_COOLDOWN_DAYS days."
         // The library's own check speaks in identifiers; only the order of the thresholds can fail it here (ADR 0070).
         else -> applyTo(base).validate().firstOrNull()?.let { LEVEL_ORDER_PROBLEM }
     }

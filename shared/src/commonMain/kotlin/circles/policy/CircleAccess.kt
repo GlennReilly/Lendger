@@ -113,7 +113,7 @@ data class CircleConfig(
     /** Only reviewers at this tier or above count (C9). */
     val pauseReviewerMinTier: Tier = Tier.TRUSTED,
     val defaultPauseDays: Int = DEFAULT_PAUSE_DAYS,
-    /** After an unreported incident, higher-value items are on hold this long (C7). */
+    /** After an unreported incident, higher-value items are in a waiting period this long, in days (C7). */
     val incidentCooldownDays: Int = DEFAULT_INCIDENT_COOLDOWN_DAYS,
     /** Positive events with the same counterpart are credited at most this often per window (C8). */
     val maxCreditedPerCounterpart: Int = DEFAULT_MAX_CREDITED_PER_COUNTERPART,
@@ -190,9 +190,17 @@ data class Standing(
     val points: Double,
     val tier: Tier,
     val reasons: List<String>,
-    /** While today is before this day, higher-value items are on hold (C7). Null when no cooldown. */
+    /** While today is before this day, higher-value items are in a waiting period (C7). Null when there is none. */
     val incidentUntilDay: Day? = null
 )
+
+/** The one sentence that explains an active waiting period (ADR 0084): shown on My level and among the reasons. */
+fun waitingPeriodSentence(daysLeft: Int): String =
+    "A recent unreported incident means a waiting period of ${if (daysLeft == 1) "1 more day" else "$daysLeft more days"} before you can borrow higher-value items. " +
+        "Everyday and essential items are not affected, and your level does not change."
+
+/** Said once beside the waiting period: it is automatic, unlike a pause (ADR 0084). */
+const val WAITING_PERIOD_NOT_A_PAUSE = "A waiting period starts by itself after an unreported incident and ends by itself. A pause is different: members vote on it."
 
 object StandingCalculator {
 
@@ -265,8 +273,7 @@ object StandingCalculator {
         val until = latestIncident?.plus(cfg.incidentCooldownDays)
         val incidentUntil = if (until != null && until > today) until else null
         if (incidentUntil != null) {
-            reasons += "A recent unreported incident puts higher-value items on hold for ${incidentUntil - today} more days. " +
-                "Essentials and everyday items stay open."
+            reasons += waitingPeriodSentence(incidentUntil - today)
         }
 
         return Standing(points, tier, reasons, incidentUntil)
@@ -381,10 +388,10 @@ object AccessPolicy {
         if (item.itemClass.heldDuringCooldown && cooldownEnds != null && cooldownEnds > today) {
             val daysLeft = cooldownEnds - today
             return AccessDecision.NotYet(
-                standing.reasons + "${item.name} is on hold for $daysLeft more days after an unreported incident.",
+                standing.reasons + "${item.name} is in a waiting period for ${if (daysLeft == 1) "1 more day" else "$daysLeft more days"} after an unreported incident.",
                 listOf(
                     "Everyday items and essentials are still open to you.",
-                    "The hold ends in $daysLeft days; it is a pause, not a ban."
+                    "The waiting period ends by itself in ${if (daysLeft == 1) "1 day" else "$daysLeft days"}. It is not a ban, and it is not a pause that members voted on."
                 )
             )
         }

@@ -81,7 +81,7 @@ class AccessPolicyTest {
         assertIs<AccessDecision.Eligible>(decide(DEE, item(ALICE, ItemClass.EVERYDAY), s))
         val valuable = decide(DEE, item(ALICE, ItemClass.VALUABLE), s)
         assertIs<AccessDecision.NotYet>(valuable)
-        assertTrue(valuable.reasons.any { "on hold" in it })
+        assertTrue(valuable.reasons.any { "waiting period" in it })
     }
 
     @Test

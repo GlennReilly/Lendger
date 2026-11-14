@@ -132,6 +132,8 @@ data class StandingSummary(
     val points: String,
     val reasons: List<String>,
     val howToUnlock: List<String>,
+    /** Days left of a waiting period after an unreported incident (ADR 0084), or null when there is none. */
+    val waitingDays: Int? = null,
 )
 
 /** Whether this member may ask for an item, and if not why and how to change that. */
@@ -1840,6 +1842,7 @@ class CircleApp(
                     points = circles.policy.format1(myStanding.points),
                     reasons = myStanding.reasons,
                     howToUnlock = unlockHints(myStanding, cfg),
+                    waitingDays = myStanding.incidentUntilDay?.let { it - now },
                 ),
                 canVouch = StandingRules.mayVouch(me, cfg, loansNow, vouchesNow, view.stewards, now, view.market.contributions),
                 stewardCount = view.stewards.size,

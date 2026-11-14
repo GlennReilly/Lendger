@@ -664,6 +664,16 @@ class ShellViewTest {
         assertTrue("Why, and how to unlock" in html)
     }
 
+    @Test fun anActiveWaitingPeriodIsExplainedOnMyLevelAndLeftOutOfTheReasonsList() {
+        val waiting = StandingSummary(Tier.REGULAR, "0.0", listOf(circles.policy.waitingPeriodSentence(12), "Your activity in this circle gives you 0.0 points."), emptyList(), waitingDays = 12)
+        val html = render(open(home().copy(standing = waiting)).copy(screen = Screen.Standing))
+        assertTrue("Waiting period" in html)
+        assertEquals(1, Regex("a waiting period of 12 more days before you can borrow higher-value items").findAll(html).count(), "said once, not again under Why")
+        assertTrue("Everyday and essential items are not affected, and your level does not change." in html)
+        assertTrue(circles.policy.WAITING_PERIOD_NOT_A_PAUSE in html)
+        assertFalse("Waiting period" in render(open(home().copy(standing = myStanding)).copy(screen = Screen.Standing)), "no block without a waiting period")
+    }
+
     private val myStanding = StandingSummary(Tier.REGULAR, "3.5", listOf("Your activity in this circle gives you 3.5 points."), listOf("About 6.5 more points opens Level 3 access."))
 
     @Test fun theStandingPageShowsOnlyYourOwnTierPointsReasonsAndNextSteps() {

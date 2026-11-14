@@ -87,6 +87,7 @@ One short file per decision that is hard to reverse, changes a rule, picks a tec
 | [0081](0081-approve-access-wording.md) | The UI says "approve access", not "let in" | Accepted |
 | [0082](0082-dates-in-refusal-reasons.md) | Dates inside refusal reasons are placeholders the page fills in | Accepted |
 | [0083](0083-account-menu-in-the-header.md) | My level and Settings move into an account menu in the header | Accepted |
+| [0084](0084-waiting-period-wording.md) | The "hold" after an unreported incident is called a waiting period, and the pages explain it | Accepted |
 
 ## Open decisions still to record
 

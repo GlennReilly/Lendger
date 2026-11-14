@@ -631,10 +631,10 @@ abstract class MarketContract {
         w.log += afterCooldown
         val view = w.foldAs(w.founder)
         val reasons = view.rejected.associate { it.id to it.reason }
-        assertTrue(heldValuable.eventId(w.crypto) in reasons, "the hold applies to valuable items")
-        assertTrue(reasons.getValue(heldValuable.eventId(w.crypto)).contains("on hold"))
+        assertTrue(heldValuable.eventId(w.crypto) in reasons, "the waiting period applies to valuable items")
+        assertTrue(reasons.getValue(heldValuable.eventId(w.crypto)).contains("waiting period"))
         assertTrue(openEveryday.eventId(w.crypto) !in reasons, "everyday items stay open")
-        assertTrue(afterCooldown.eventId(w.crypto) !in reasons, "the hold is a pause that ends")
+        assertTrue(afterCooldown.eventId(w.crypto) !in reasons, "the waiting period ends by itself")
         assertEquals(DisputeOutcome.UPHELD, view.market.loans.getValue(loan).dispute?.outcome)
     }
 
@@ -869,7 +869,7 @@ abstract class MarketContract {
         assertEquals(listOf("The reviewers needed for a pause must be from 2 to 9."), rejected(w.founder, d.copy(reviewersForPause = 1)))
         assertEquals(listOf("The points must rise from each level to the next."), rejected(w.founder, d.copy(regularTenths = d.trustedTenths)))
         assertEquals(listOf("Each level's points can be from 0.1 to 10000."), rejected(w.founder, d.copy(stewardTenths = 0)))
-        assertEquals(listOf("Higher-value items can be on hold for 0 to 365 days after an unreported incident."), rejected(w.founder, d.copy(incidentCooldownDays = 366)))
+        assertEquals(listOf("The waiting period for higher-value items after an unreported incident can be 0 to 365 days."), rejected(w.founder, d.copy(incidentCooldownDays = 366)))
     }
 
     @Test

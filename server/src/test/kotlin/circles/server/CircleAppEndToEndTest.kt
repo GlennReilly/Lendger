@@ -557,7 +557,7 @@ class CircleAppEndToEndTest {
         assertEquals(DisputeStatus.UPHELD, home(carol.app).loans.single { it.loan == second }.dispute!!.status)
         val carolNow = home(carol.app).standing!!
         assertEquals("0.0", carolNow.points, "the incident outweighs the earlier good loan, and points never go below zero")
-        assertTrue(carolNow.reasons.any { it.contains("unreported incident") && it.contains("on hold") })
+        assertTrue(carolNow.reasons.any { it.contains("unreported incident") && it.contains("waiting period") })
         assertEquals("1.3", home(bea.app).standing!!.points, "an upheld dispute earns the owner nothing for that loan")
         assertEquals(0, home(alice.app).loans.count { it.canResolve })
     }
