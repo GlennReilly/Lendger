@@ -511,12 +511,12 @@ class ShellViewTest {
     @Test fun stewardsSeeTheKindsOfItemWithFormsAndPendingVotes() {
         val proposal = circles.app.TagProposalSummary(circles.event.TagChange(garden.tag, circles.event.TagOp.RETIRE, null), "Garden", 1, 2, iAgree = false, canAgree = true)
         val html = render(open(home().copy(tags = listOf(garden, oldKind), tagProposals = listOf(proposal))).copy(screen = Screen.Stewards))
-        assertTrue("Kinds of item" in html)
+        assertTrue("Categories" in html)
         assertTrue("""id="$FORM_TAG_ADD"""" in html)
         assertTrue("""id="$FORM_TAG_RENAME_PREFIX${garden.tag.v}"""" in html)
         assertTrue("""$ATTR_ACTION="$ACTION_TAG_RETIRE"""" in html)
-        assertTrue("Retired kinds: Camping." in html)
-        assertTrue("Retire the kind" in html && "1 of 2 stewards agree." in html)
+        assertTrue("Retired categories: Camping." in html)
+        assertTrue("Retire the category" in html && "1 of 2 stewards agree." in html)
         assertTrue("""$ATTR_ACTION="$ACTION_TAG_AGREE"""" in html)
     }
 
@@ -539,10 +539,10 @@ class ShellViewTest {
     @Test fun theItemsPageHasAKindFilterAndShowsTagsUnderItems() {
         val html = items(home(items = listOf(ladder.copy(tags = listOf(garden)), drill)).copy(tags = listOf(garden)))
         assertTrue("""id="$ID_ITEM_TAG"""" in html)
-        assertTrue("All kinds" in html)
-        assertTrue("Kind of item: Garden" in html)
+        assertTrue("All categories" in html)
+        assertTrue("Category: Garden" in html)
         assertTrue("""$ATTR_ITEM_TAGS="${garden.tag.v}"""" in html)
-        assertFalse("""id="$ID_ITEM_TAG"""" in items(home(items = listOf(ladder, drill))), "no kinds, no menu")
+        assertFalse("""id="$ID_ITEM_TAG"""" in items(home(items = listOf(ladder, drill))), "no categories, no menu")
     }
 
     @Test fun theItemsPageSaysWhenYouCannotSeeItemsYet() {
@@ -1240,7 +1240,7 @@ class ShellViewTest {
         assertFalse(ACTION_RULES_AGREE in render(open(home().copy(rules = summary.copy(proposals = listOf(voted)))).copy(screen = Screen.Stewards)))
     }
 
-    @Test fun theCircleRulesShowWhatEachKindOfItemNeedsAndStewardsCanProposeChanges() {
+    @Test fun theCircleRulesShowWhatEachValueClassNeedsAndStewardsCanProposeChanges() {
         val changed = defaultRules.copy(everydayLevel = 2, valuableLevel = 2, highValueLevel = 3, everydayWaiting = true, valuableWaiting = false)
         val member = render(open(home(steward = false).copy(rules = circles.app.RulesSummary(changed))).copy(screen = Screen.Stewards))
         assertTrue("Essential items: Level 1, always open, never in the waiting period" in member)
@@ -1250,7 +1250,7 @@ class ShellViewTest {
         assertFalse(RULES_LEVEL_VALUABLE in member, "members cannot propose")
         val steward = render(open(home().copy(rules = circles.app.RulesSummary(changed))).copy(screen = Screen.Stewards))
         for (field in listOf(RULES_LEVEL_EVERYDAY, RULES_LEVEL_VALUABLE, RULES_LEVEL_HIGH_VALUE, RULES_WAIT_EVERYDAY, RULES_WAIT_VALUABLE, RULES_WAIT_HIGH_VALUE)) assertTrue("""id="$field"""" in steward, field)
-        assertTrue("Level needed for valuable items: " in steward)
+        assertTrue("Level needed for the valuable value class: " in steward)
         assertTrue("Essential items stay at Level 1 and are never in the waiting period." in steward)
         assertFalse(">Level 4<" in steward, "the steward-only level is not offered for items")
         assertTrue("A waiting period starts by itself after an unreported incident and ends by itself. A pause is different: members vote on it." in steward)

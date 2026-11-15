@@ -460,27 +460,28 @@ try {
   if (!(await buttonHidden(alice, 'steward-rules-form'))) throw new Error('rules button visible with two of four'); await setField(alice, 'steward-rules-form', 'fallback-days', '14');
   if (!(await buttonHidden(alice, 'steward-rules-form'))) throw new Error('rules button visible with three of four'); await setField(alice, 'steward-rules-form', 'recovery-threshold', '0');
   if (await buttonHidden(alice, 'steward-rules-form')) throw new Error('rules button hidden with all four'); ok('the rules button waits for all four numbers');
-  // Circle rules per kind of item (ADR 0085): the defaults are listed, an impossible order is refused in words, a valid change applies at once.
-  await until(alice, has(alice, 'Valuable items: Level 2, in the waiting period') + ' && ' + has(alice, 'Essential items: Level 1, always open, never in the waiting period') + ' && ' + has(alice, 'A waiting period starts by itself after an unreported incident'), 'kind rules listed');
+  // Circle rules per value class (ADR 0085): the defaults are listed, an impossible order is refused in words, a valid change applies at once.
+  await until(alice, has(alice, 'Valuable items: Level 2, in the waiting period') + ' && ' + has(alice, 'Essential items: Level 1, always open, never in the waiting period') + ' && ' + has(alice, 'A waiting period starts by itself after an unreported incident'), 'value-class rules listed');
   await alice.evaluate(`document.getElementById('circle-rules-form').closest('details').open = true`); await checkAccessibility(alice, 'stewards with the circle rules form open');
   await alice.evaluate(`document.getElementById('rules-level-everyday').value = '3'; document.getElementById('circle-rules-form').requestSubmit()`);
-  await until(alice, has(alice, 'A more valuable kind of item cannot need a lower level than a less valuable one.'), 'order refused');
+  await until(alice, has(alice, 'A value class worth more cannot need a lower level than one worth less.'), 'order refused');
+  await until(alice, 'document.querySelector("[aria-busy=true]") === null', 'the first submit has finished');
   await alice.evaluate(`document.getElementById('rules-level-everyday').value = '1'; document.getElementById('rules-level-valuable').value = '1'; document.getElementById('rules-wait-everyday').checked = true; document.getElementById('circle-rules-form').requestSubmit()`);
-  await until(alice, has(alice, 'The new circle rules apply from today.') + ' && ' + has(alice, 'Valuable items: Level 1, in the waiting period') + ' && ' + has(alice, 'Everyday items: Level 1, in the waiting period'), 'kind rules changed');
-  ok('Circle rules: the kind rules are listed, an out-of-order level is refused in words, and a change applies and is listed');
-  // Kinds of item (ADR 0086): the lone steward adds two kinds, one is refused as a duplicate, the owner picks one, a fourth pick is refused, and the item shows it.
-  await until(alice, has(alice, 'Kinds of item') + ' && document.getElementById("tag-add-form") !== null', 'kinds section');
+  await until(alice, has(alice, 'The new circle rules apply from today.') + ' && ' + has(alice, 'Valuable items: Level 1, in the waiting period') + ' && ' + has(alice, 'Everyday items: Level 1, in the waiting period'), 'value-class rules changed');
+  ok('Circle rules: the value-class rules are listed, an out-of-order level is refused in words, and a change applies and is listed');
+  // Categories (ADR 0086): the lone steward adds two categories, one is refused as a duplicate, the owner picks one, a fourth pick is refused, and the item shows it.
+  await until(alice, has(alice, 'Categories') + ' && document.getElementById("tag-add-form") !== null', 'categories section');
   await submit(alice, 'tag-add-form', { 'tag-name': 'Garden' }); await until(alice, has(alice, 'Garden'), 'garden added');
-  await submit(alice, 'tag-add-form', { 'tag-name': 'garden' }); await until(alice, has(alice, 'A kind with that name already exists.'), 'duplicate kind refused in words');
+  await submit(alice, 'tag-add-form', { 'tag-name': 'garden' }); await until(alice, has(alice, 'A category with that name already exists.'), 'duplicate category refused in words');
   await submit(alice, 'tag-add-form', { 'tag-name': 'Kitchen' }); await until(alice, has(alice, 'Kitchen'), 'kitchen added');
-  await checkAccessibility(alice, 'stewards with kinds of item');
-  await alice.evaluate('location.hash = "#/items"'); await until(alice, has(alice, 'Long ladder'), 'items for kinds');
-  await click(alice, 'edit-item'); await until(alice, 'document.querySelector("input[name=tag]") !== null', 'kind tick boxes on the change page');
-  await checkAccessibility(alice, 'change item with kinds');
+  await checkAccessibility(alice, 'stewards with categories');
+  await alice.evaluate('location.hash = "#/items"'); await until(alice, has(alice, 'Long ladder'), 'items for categories');
+  await click(alice, 'edit-item'); await until(alice, 'document.querySelector("input[name=tag]") !== null', 'category tick boxes on the change page');
+  await checkAccessibility(alice, 'change item with categories');
   await alice.evaluate('document.querySelector("input[name=tag]").click(); document.getElementById("item-edit-form").requestSubmit()');
-  await until(alice, has(alice, 'Kind of item: Garden'), 'item shows its kind'); ok('Kinds of item: a steward adds kinds, a duplicate is refused in words, and the owner picks one that shows under the item');
-  await checkAccessibility(alice, 'items with a kind');
-  await alice.evaluate('location.hash = "#/stewards"'); await until(alice, has(alice, 'Kinds of item'), 'back to stewards');
+  await until(alice, has(alice, 'Category: Garden'), 'item shows its category'); ok('Categories: a steward adds categories, a duplicate is refused in words, and the owner picks one that shows under the item');
+  await checkAccessibility(alice, 'items with a category');
+  await alice.evaluate('location.hash = "#/stewards"'); await until(alice, has(alice, 'Categories'), 'back to stewards');
   await click(alice, 'steward-add'); await until(alice, has(alice, 'The steward change takes effect now.'), 'bea made steward'); await until(alice, has(alice, 'Steward since') , 'two stewards listed');
   ok('alice made bea a steward (a lone steward needs no one else to agree)');
   await syncUntil(bea, 'location.hash = "#/stewards"; ' + has(bea, 'Can vote from'), 'bea sees she is cooling off'); ok('bea, the new steward, sees when she can vote from');

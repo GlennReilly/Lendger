@@ -277,8 +277,8 @@ internal class MarketFold(
             if (existing.retired) return "The item has been archived, so it cannot be changed or asked for."
         }
         val wraps = (existing?.keyWraps.orEmpty()) + (v.detailKeyId to (existing?.keyWraps?.get(v.detailKeyId).orEmpty() + v.keyWraps.associate { it.device to it.wrapped }))
-        v.tags.firstOrNull { tags[it] == null }?.let { return "That kind is not in the circle's list." }
-        v.tags.firstOrNull { tags.getValue(it).retired && it !in existing?.tags.orEmpty() }?.let { return "A retired kind cannot be added to an item." }
+        v.tags.firstOrNull { tags[it] == null }?.let { return "That category is not in the circle's list." }
+        v.tags.firstOrNull { tags.getValue(it).retired && it !in existing?.tags.orEmpty() }?.let { return "A retired category cannot be added to an item." }
         items[v.item] = ItemState(v.item, author, v.name, v.itemClass, v.minTier, v.detailKeyId, false, wraps, existing?.sealedDetails.orEmpty(), v.photos, v.tags)
         return null
     }
@@ -460,21 +460,21 @@ internal class MarketFold(
         fun taken() = tags.values.any { !it.retired && it.tag != v.tag && NameKey.of(it.name) == key }
         return when (v.op) {
             TagOp.ADD -> v.name?.let { TagNames.problem(it) } ?: when {
-                current != null -> "That kind is already in the list."
+                current != null -> "That category is already in the list."
                 tags.values.count { !it.retired } >= MAX_LIVE_TAGS -> TAG_LIMIT_REACHED
                 taken() -> TAG_NAME_TAKEN
                 else -> null
             }
             TagOp.RENAME -> v.name?.let { TagNames.problem(it) } ?: when {
-                current == null -> "That kind is not in the circle's list."
-                current.retired -> "That kind has been retired."
-                current.name == v.name -> "That is already the kind's name."
+                current == null -> "That category is not in the circle's list."
+                current.retired -> "That category has been retired."
+                current.name == v.name -> "That is already the category's name."
                 taken() -> TAG_NAME_TAKEN
                 else -> null
             }
             TagOp.RETIRE -> when {
-                current == null -> "That kind is not in the circle's list."
-                current.retired -> "That kind has already been retired."
+                current == null -> "That category is not in the circle's list."
+                current.retired -> "That category has already been retired."
                 else -> null
             }
         }
@@ -482,7 +482,7 @@ internal class MarketFold(
 
     private fun tagChange(author: MemberId, v: TagChange, day: Int, id: EventId): String? {
         val facts = stewardFactsAt(id)
-        if (author !in facts.stewards) return "Only a steward can change the circle's kinds of item."
+        if (author !in facts.stewards) return "Only a steward can change the circle's categories."
         val since = facts.since[author]
         if (facts.quorum > 1 && since != null && since != FOUNDING_STEWARD_DAY && day < since + DEFAULT_STEWARD_COOL_OFF_DAYS) return "A new steward cannot vote until ${circles.app.ReasonDates.token(since + DEFAULT_STEWARD_COOL_OFF_DAYS)}."
         tagProblem(v)?.let { return it }

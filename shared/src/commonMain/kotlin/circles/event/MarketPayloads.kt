@@ -224,7 +224,7 @@ object MarketPayloads {
         // Events written before ADR 0085 have none of the six per-kind fields and keep the defaults; otherwise all six are required.
         val present = CLASS_RULE_KEYS.count { it in map.entries.keys }
         if (present == 0) return Parsed.Ok(base)
-        if (present != CLASS_RULE_KEYS.size) return Parsed.Invalid("the per-kind fields must all be present or all be absent")
+        if (present != CLASS_RULE_KEYS.size) return Parsed.Invalid("the per-class fields must all be present or all be absent")
         val c = CLASS_RULE_KEYS.map { name -> (map[name] as? CborInt)?.value?.takeIf { it in 0..MAX_DAY } ?: return Parsed.Invalid("$name must be a whole number") }.map { it.toInt() }
         if (c[3] > 1 || c[4] > 1 || c[5] > 1) return Parsed.Invalid("waiting flags must be 0 or 1")
         return Parsed.Ok(base.copy(everydayLevel = c[0], valuableLevel = c[1], highValueLevel = c[2], everydayWaiting = c[3] == 1, valuableWaiting = c[4] == 1, highValueWaiting = c[5] == 1))
@@ -329,7 +329,7 @@ object MarketPayloads {
         val detailKeyId = randomId(map, K_DETAIL_KEY) ?: return Parsed.Invalid("detailKeyId must be 32 lowercase hex characters")
         val keyWraps = readWraps(map) ?: return Parsed.Invalid("keyWraps must list 1 to $MAX_KEY_WRAPS distinct devices with sealed keys")
         val photos = readPhotos(map) ?: return Parsed.Invalid("photos must list at most $MAX_PHOTOS_PER_ITEM entries with two blob hashes, an epoch and a description of 1 to $MAX_PHOTO_ALT_CHARS characters")
-        val tags = readTags(map) ?: return Parsed.Invalid("tags must list at most $MAX_TAGS_PER_ITEM distinct kinds, each 32 lowercase hex characters")
+        val tags = readTags(map) ?: return Parsed.Invalid("tags must list at most $MAX_TAGS_PER_ITEM distinct categories, each 32 lowercase hex characters")
         return Parsed.Ok(ItemUpsert(ItemId(item), name, itemClass, minTier, detailKeyId, keyWraps, photos, tags))
     }
 

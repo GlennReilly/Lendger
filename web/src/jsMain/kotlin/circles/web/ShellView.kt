@@ -1253,7 +1253,7 @@ private fun FlowContent.items(home: HomeData, state: AppState) {
                 attributes[ATTR_ITEM_TEXT] = (item.name + " " + item.tags.joinToString(" ") { it.name }).lowercase()
                 attributes[ATTR_ITEM_TAGS] = item.tags.joinToString(" ") { it.tag.v }
                 h2 { +item.name }
-                if (item.tags.isNotEmpty()) p { +"Kind of item: ${item.tags.joinToString(", ") { it.name }}" }
+                if (item.tags.isNotEmpty()) p { +"${if (item.tags.size == 1) "Category" else "Categories"}: ${item.tags.joinToString(", ") { it.name }}" }
                 if (item.photos.isNotEmpty()) {
                     div {
                         classes = setOf("photos")
@@ -1315,7 +1315,7 @@ private fun FlowContent.dateEcho(inputId: String, day: Int?) {
     }
 }
 
-/** A search box and a "Kind of item" menu that narrow the list on this device (ADR 0086); nothing is sent. */
+/** A search box and a "Category" menu that narrow the list on this device (ADR 0086); nothing is sent. */
 private fun FlowContent.itemFilters(home: HomeData, total: Int) {
     if (home.items.size < 2) return
     label {
@@ -1330,14 +1330,14 @@ private fun FlowContent.itemFilters(home: HomeData, total: Int) {
     if (live.isNotEmpty()) {
         label {
             attributes["for"] = ID_ITEM_TAG
-            +"Kind of item: "
+            +"Category: "
         }
         select {
             id = ID_ITEM_TAG
             option {
                 value = ""
                 selected = true
-                +"All kinds"
+                +"All categories"
             }
             for (tag in live) option {
                 value = tag.tag.v
@@ -1379,9 +1379,9 @@ private fun FlowContent.tagPicker(home: HomeData, existing: ItemSummary?) {
     val live = home.tags.filter { !it.retired }
     val kept = existing?.tags.orEmpty().filter { it.retired }
     fieldSet {
-        legend { +"Kind of item" }
-        if (live.isEmpty()) p { +"The circle has no kinds of item yet. Stewards can add them on the Stewards page." }
-        else p { +"Choose up to $MAX_TAGS_PER_ITEM kinds so members can find this item." }
+        legend { +"Categories" }
+        if (live.isEmpty()) p { +"The circle has no categories yet. Stewards can add them on the Stewards page." }
+        else p { +"Choose up to $MAX_TAGS_PER_ITEM categories so members can find this item." }
         for (tag in live) div {
             classes = setOf("check-row")
             input(type = InputType.checkBox, name = FIELD_TAG) {
@@ -1417,7 +1417,7 @@ private fun FlowContent.itemForm(home: HomeData, existing: ItemSummary?) {
         }
         label {
             attributes["for"] = FIELD_KIND
-            +"Kind: "
+            +"Value class: "
         }
         select {
             id = FIELD_KIND
@@ -1440,7 +1440,7 @@ private fun FlowContent.itemForm(home: HomeData, existing: ItemSummary?) {
             option {
                 value = ""
                 selected = existing?.ownerMinTier == null
-                +"Whoever the circle's rules allow for this kind"
+                +"Whoever the circle's rules allow for this value class"
             }
             for (tier in listOf(Tier.REGULAR, Tier.TRUSTED)) option {
                 value = tier.name
@@ -2233,18 +2233,18 @@ private fun policyProposalText(proposal: ProposalSummary): String = when (propos
 
 /** Who looks after the circle, what is waiting for their agreement, and the rules they follow (ADR 0027). */
 private fun tagProposalText(p: circles.app.TagProposalSummary): String = when (p.change.op) {
-    circles.event.TagOp.ADD -> "Add the kind \"${p.change.name}\""
-    circles.event.TagOp.RENAME -> "Rename the kind \"${p.tagName.orEmpty()}\" to \"${p.change.name}\""
-    circles.event.TagOp.RETIRE -> "Retire the kind \"${p.tagName.orEmpty()}\""
+    circles.event.TagOp.ADD -> "Add the category \"${p.change.name}\""
+    circles.event.TagOp.RENAME -> "Rename the category \"${p.tagName.orEmpty()}\" to \"${p.change.name}\""
+    circles.event.TagOp.RETIRE -> "Retire the category \"${p.tagName.orEmpty()}\""
 }
 
 /** The circle's kinds of item and the votes to change them (ADR 0086). */
 private fun FlowContent.tagsSection(home: HomeData) {
     section {
-        h2 { +"Kinds of item" }
-        p { +"Owners choose up to $MAX_TAGS_PER_ITEM kinds for each item, and members can narrow the Items list by kind. Changing the list needs the same stewards to agree as the other circle rules." }
+        h2 { +"Categories" }
+        p { +"Owners choose up to $MAX_TAGS_PER_ITEM categories for each item, and members can narrow the Items list by category. Changing the list needs the same stewards to agree as the other circle rules." }
         val live = home.tags.filter { !it.retired }
-        if (live.isEmpty()) p { +"The circle has no kinds of item yet." }
+        if (live.isEmpty()) p { +"The circle has no categories yet." }
         else ul {
             for (tag in live) li {
                 +tag.name
@@ -2255,7 +2255,7 @@ private fun FlowContent.tagsSection(home: HomeData) {
                         attributes[ATTR_TAG] = tag.tag.v
                         label {
                             attributes["for"] = FIELD_TAG_NAME + "-" + tag.tag.v
-                            +"New name for this kind: "
+                            +"New name for this category: "
                         }
                         input(type = InputType.text, name = FIELD_TAG_NAME) {
                             id = FIELD_TAG_NAME + "-" + tag.tag.v
@@ -2270,14 +2270,14 @@ private fun FlowContent.tagsSection(home: HomeData) {
                     button(type = ButtonType.button) {
                         attributes[ATTR_ACTION] = ACTION_TAG_RETIRE
                         attributes[ATTR_TAG] = tag.tag.v
-                        +"Propose retiring this kind"
+                        +"Propose retiring this category"
                     }
-                    p { +"A retired kind is no longer offered. Items that already have it keep it." }
+                    p { +"A retired category is no longer offered. Items that already have it keep it." }
                 }
             }
         }
         val retired = home.tags.filter { it.retired }
-        if (retired.isNotEmpty()) p { +"Retired kinds: ${retired.joinToString(", ") { it.name }}." }
+        if (retired.isNotEmpty()) p { +"Retired categories: ${retired.joinToString(", ") { it.name }}." }
         for (proposal in home.tagProposals) {
             p { +"${tagProposalText(proposal)}. ${proposal.agreeing} of ${proposal.needed} stewards agree." }
             if (proposal.canAgree) button(type = ButtonType.button) {
@@ -2293,7 +2293,7 @@ private fun FlowContent.tagsSection(home: HomeData) {
                 id = FORM_TAG_ADD
                 label {
                     attributes["for"] = FIELD_TAG_NAME
-                    +"New kind: "
+                    +"New category: "
                 }
                 input(type = InputType.text, name = FIELD_TAG_NAME) {
                     id = FIELD_TAG_NAME
@@ -2302,7 +2302,7 @@ private fun FlowContent.tagsSection(home: HomeData) {
                     attributes[ATTR_MIN] = "1"
                     attributes["autocomplete"] = "off"
                 }
-                formSubmit("Propose adding this kind")
+                formSubmit("Propose adding this category")
             }
         }
     }
@@ -2405,7 +2405,7 @@ private fun FlowContent.stewards(home: HomeData) {
             li { +"Waiting period for higher-value items after an unreported incident: ${now.incidentCooldownDays} days" }
         }
         p { +WAITING_PERIOD_NOT_A_PAUSE }
-        h3 { +"What each kind of item needs" }
+        h3 { +"What each value class needs" }
         ul {
             li { +"Essential items: ${TierText.label(Tier.NEW)}, always open, never in the waiting period" }
             for (line in classRuleLines(now)) li { +line }
@@ -2455,9 +2455,9 @@ private fun FlowContent.stewards(home: HomeData) {
                         }
                     }
                     for ((field, label, level) in listOf(
-                        Triple(RULES_LEVEL_EVERYDAY, "Level needed for everyday items: ", now.everydayLevel),
-                        Triple(RULES_LEVEL_VALUABLE, "Level needed for valuable items: ", now.valuableLevel),
-                        Triple(RULES_LEVEL_HIGH_VALUE, "Level needed for high-value items: ", now.highValueLevel),
+                        Triple(RULES_LEVEL_EVERYDAY, "Level needed for the everyday value class: ", now.everydayLevel),
+                        Triple(RULES_LEVEL_VALUABLE, "Level needed for the valuable value class: ", now.valuableLevel),
+                        Triple(RULES_LEVEL_HIGH_VALUE, "Level needed for the high-value value class: ", now.highValueLevel),
                     )) {
                         label {
                             attributes["for"] = field
@@ -2488,7 +2488,7 @@ private fun FlowContent.stewards(home: HomeData) {
                             +label
                         }
                     }
-                    p { +"Essential items stay at ${TierText.label(Tier.NEW)} and are never in the waiting period. A more valuable kind cannot need a lower level than a less valuable one." }
+                    p { +"Essential items stay at ${TierText.label(Tier.NEW)} and are never in the waiting period. A value class worth more cannot need a lower level than one worth less." }
                     formSubmit("Propose these rules", ready = true)
                 }
             }

@@ -123,4 +123,22 @@ class StandaloneWordsSourceScanTest {
         assertTrue(found.isEmpty(), "Say waiting period (ADR 0084):\n" + found.joinToString("\n"))
         assertTrue(holdWords.containsMatchIn("higher-value items are on hold") && holdWords.containsMatchIn("The hold ends in 3 days") && holdWords.containsMatchIn("incident cooldown"))
     }
+
+    /** ADR 0088: item classes are "value class", the steward-managed tags are "category"; "kind of item" meant both, so no string a person reads uses "kind(s)" any more. */
+    private val templateParts = Regex("""\$\{[^}]*\}""")
+    private val kindWords = Regex("""(?i)\bkinds?\b""")
+
+    @Test
+    fun noMessageOrLabelSaysKindOfItem() {
+        val files = scanned.map { File(root, it) }.filter { it.isDirectory }
+            .flatMap { dir -> dir.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList() }
+        val found = files.flatMap { file ->
+            file.readLines().withIndex()
+                .filter { (_, line) -> line.trimStart().let { !it.startsWith("//") && !it.startsWith("*") && !it.startsWith("/**") } }
+                .flatMap { (index, line) -> literal.findAll(line).filter { !it.groupValues[1].matches(Regex("[a-z0-9-]+")) && it.groupValues[1] != "kind is not a known contribution" && kindWords.containsMatchIn(it.groupValues[1].replace(templateParts, "")) }.map { "${file.relativeTo(root)}:${index + 1}: ${it.value}" }.toList() }
+        }
+        assertTrue(found.isEmpty(), "Say value class or category, not kind of item (ADR 0088):\n" + found.joinToString("\n"))
+        assertTrue(kindWords.containsMatchIn("Kind of item: ") && kindWords.containsMatchIn("All kinds") && kindWords.containsMatchIn("A kind's name"))
+        assertTrue(!kindWords.containsMatchIn("Value class: ") && !kindWords.containsMatchIn("All categories"))
+    }
 }

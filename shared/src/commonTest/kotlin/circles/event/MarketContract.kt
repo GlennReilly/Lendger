@@ -862,14 +862,14 @@ abstract class MarketContract {
         val (garden, gardenEvent) = w.tagAdd(w.founder, "Garden")
         w.log += gardenEvent
         fun reason(e: Envelope) = w.reasons(listOf(e)).single()
-        assertEquals("Only a steward can change the circle's kinds of item.", reason(w.tagAdd(w.bea, "Camping").second))
+        assertEquals("Only a steward can change the circle's categories.", reason(w.tagAdd(w.bea, "Camping").second))
         assertEquals(TAG_NAME_TAKEN, reason(w.tagAdd(w.founder, "GARDEN").second), "case is ignored")
-        assertEquals("A kind's name cannot be empty.", reason(w.tagAdd(w.founder, "").second))
-        assertEquals("A kind's name can have at most 24 characters.", reason(w.tagAdd(w.founder, "x".repeat(25)).second))
-        assertEquals("A kind's name cannot start or end with a space.", reason(w.tagAdd(w.founder, " Camping").second))
-        assertEquals("That is already the kind's name.", reason(w.founder.tagChange(w.circle, DAY, TagChange(garden.tag, TagOp.RENAME, "Garden"))))
-        assertEquals("That kind is not in the circle's list.", reason(w.founder.tagChange(w.circle, DAY, TagChange(newTagId(w.crypto), TagOp.RETIRE, null))))
-        assertEquals("That kind is already in the list.", reason(w.founder.tagChange(w.circle, DAY, TagChange(garden.tag, TagOp.ADD, "Other"))))
+        assertEquals("A category's name cannot be empty.", reason(w.tagAdd(w.founder, "").second))
+        assertEquals("A category's name can have at most 24 characters.", reason(w.tagAdd(w.founder, "x".repeat(25)).second))
+        assertEquals("A category's name cannot start or end with a space.", reason(w.tagAdd(w.founder, " Camping").second))
+        assertEquals("That is already the category's name.", reason(w.founder.tagChange(w.circle, DAY, TagChange(garden.tag, TagOp.RENAME, "Garden"))))
+        assertEquals("That category is not in the circle's list.", reason(w.founder.tagChange(w.circle, DAY, TagChange(newTagId(w.crypto), TagOp.RETIRE, null))))
+        assertEquals("That category is already in the list.", reason(w.founder.tagChange(w.circle, DAY, TagChange(garden.tag, TagOp.ADD, "Other"))))
         for (n in 2..MAX_LIVE_TAGS) w.log += w.tagAdd(w.founder, "Kind $n").second
         assertEquals(emptyList(), w.foldAs(w.founder).rejected)
         assertEquals(TAG_LIMIT_REACHED, reason(w.tagAdd(w.founder, "One too many").second))
@@ -911,7 +911,7 @@ abstract class MarketContract {
         w.log += w.founder.itemUpsert(w.circle, DAY + 1, item, "Spade", ItemClass.EVERYDAY, keyId, key, regs, null, emptyList(), listOf(garden.tag, kitchen.tag))
         assertEquals(listOf(garden.tag, kitchen.tag), w.foldAs(w.founder).market.items.getValue(item).tags)
         // An unknown kind is refused.
-        assertEquals(listOf("That kind is not in the circle's list."), w.reasons(listOf(w.founder.itemUpsert(w.circle, DAY + 1, item, "Spade", ItemClass.EVERYDAY, keyId, key, regs, null, emptyList(), listOf(newTagId(w.crypto))))))
+        assertEquals(listOf("That category is not in the circle's list."), w.reasons(listOf(w.founder.itemUpsert(w.circle, DAY + 1, item, "Spade", ItemClass.EVERYDAY, keyId, key, regs, null, emptyList(), listOf(newTagId(w.crypto))))))
         // Retire Kitchen: the item keeps it; the owner can save again with it, but a new item cannot take it.
         w.log += w.founder.tagChange(w.circle, DAY + 2, TagChange(kitchen.tag, TagOp.RETIRE, null))
         w.log += w.founder.itemUpsert(w.circle, DAY + 3, item, "Spade", ItemClass.EVERYDAY, keyId, key, regs, null, emptyList(), listOf(garden.tag, kitchen.tag))
@@ -919,7 +919,7 @@ abstract class MarketContract {
         assertEquals(emptyList(), view.rejected)
         assertEquals(listOf(garden.tag, kitchen.tag), view.market.items.getValue(item).tags)
         val other = newItemId(w.crypto)
-        assertEquals(listOf("A retired kind cannot be added to an item."), w.reasons(listOf(w.founder.itemUpsert(w.circle, DAY + 3, other, "Rake", ItemClass.EVERYDAY, newDetailKeyId(w.crypto), key, regs, null, emptyList(), listOf(kitchen.tag)))))
+        assertEquals(listOf("A retired category cannot be added to an item."), w.reasons(listOf(w.founder.itemUpsert(w.circle, DAY + 3, other, "Rake", ItemClass.EVERYDAY, newDetailKeyId(w.crypto), key, regs, null, emptyList(), listOf(kitchen.tag)))))
         // An item written before kinds existed has none.
         val (plain, _) = w.share(w.founder, ItemClass.EVERYDAY)
         assertEquals(emptyList(), w.foldAs(w.founder).market.items.getValue(plain).tags)

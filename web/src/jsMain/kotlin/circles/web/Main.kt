@@ -704,8 +704,8 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
             is ItemResult.DescriptionTooLong -> dispatch(AppAction.Notice("Keep the details to ${result.maximum} characters or fewer."))
             ItemResult.NotLetInYet -> dispatch(AppAction.Notice("A steward needs to approve your access before you can add items."))
             ItemResult.NotAllowed -> dispatch(AppAction.Notice("Only the owner of an item can change it, and only while it is on the list."))
-            is ItemResult.TooManyTags -> dispatch(AppAction.Notice("An item can have at most ${result.maximum} kinds. Untick one and try again."))
-            ItemResult.UnknownTag -> dispatch(AppAction.Notice("One of the kinds you chose is no longer offered by the circle. Reload the page and choose again."))
+            is ItemResult.TooManyTags -> dispatch(AppAction.Notice("An item can have at most ${result.maximum} categories. Untick one and try again."))
+            ItemResult.UnknownTag -> dispatch(AppAction.Notice("One of the categories you chose is no longer offered by the circle. Reload the page and choose again."))
         }
     }
 
@@ -718,9 +718,9 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
         dispatch(
             AppAction.Notice(
                 when (result) {
-                    is circles.app.TagResult.Sent -> if (result.takesEffect) "The change to the kinds of item applies from today." else "Your vote was sent. The change applies when enough stewards agree."
+                    is circles.app.TagResult.Sent -> if (result.takesEffect) "The change to the categories applies from today." else "Your vote was sent. The change applies when enough stewards agree."
                     is circles.app.TagResult.Refused -> Notices.sentenceOf(result.reason)
-                    circles.app.TagResult.NotAllowed -> "Only a steward can change the circle's kinds of item."
+                    circles.app.TagResult.NotAllowed -> "Only a steward can change the circle's categories."
                 },
             ),
         )

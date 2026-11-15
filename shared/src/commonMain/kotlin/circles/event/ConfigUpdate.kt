@@ -23,8 +23,8 @@ const val MAX_INCIDENT_COOLDOWN_DAYS = 365
 /** The levels a kind of item may need (ADR 0085): Level 1, 2 or 3. Level 4 is the steward-only points tier and is not allowed. */
 const val MIN_ITEM_LEVEL = 1
 const val MAX_ITEM_LEVEL = 3
-const val ITEM_LEVELS_PROBLEM = "A kind of item can need Level 1, 2 or 3."
-const val ITEM_LEVEL_ORDER_PROBLEM = "A more valuable kind of item cannot need a lower level than a less valuable one."
+const val ITEM_LEVELS_PROBLEM = "A value class can need Level 1, 2 or 3."
+const val ITEM_LEVEL_ORDER_PROBLEM = "A value class worth more cannot need a lower level than one worth less."
 
 /** Level number (1..3) to the tier it stands for; the reverse is [levelOf]. */
 fun tierOfLevel(level: Int): Tier = when (level) { 1 -> Tier.NEW; 2 -> Tier.REGULAR; else -> Tier.TRUSTED }
