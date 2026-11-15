@@ -96,6 +96,8 @@ data class ItemSummary(
     val description: String?,
     /** The item's photos, thumbnails first by blob hash (ADR 0060). */
     val photos: List<circles.event.ItemPhoto> = emptyList(),
+    /** The kinds the owner chose, retired ones included (ADR 0086). */
+    val tags: List<TagSummary> = emptyList(),
     /** The lowest tier the owner allows, if they raised it above the class default. */
     val ownerMinTier: Tier? = null,
     /** For items that are not mine: may I ask to borrow it? */
@@ -123,6 +125,20 @@ sealed interface RulesResult {
     data class Refused(val reason: String) : RulesResult
 
     data object NotAllowed : RulesResult
+}
+
+/** One of the circle's kinds of item (ADR 0086); a retired one is still named, so items that have it can show it. */
+data class TagSummary(val tag: circles.event.TagId, val name: String, val retired: Boolean)
+
+/** A change to the kinds of item that some stewards have voted for (ADR 0086). [tagName] is the kind's current name, if it has one. */
+data class TagProposalSummary(val change: circles.event.TagChange, val tagName: String?, val agreeing: Int, val needed: Int, val iAgree: Boolean, val canAgree: Boolean)
+
+sealed interface TagResult {
+    data class Sent(val takesEffect: Boolean) : TagResult
+
+    data class Refused(val reason: String) : TagResult
+
+    data object NotAllowed : TagResult
 }
 
 /** Your own standing in the circle (ADR 0042): never shown to anyone else. */
@@ -433,6 +449,12 @@ sealed interface ItemResult {
 
     /** Locked, or the item is not this member's, or it is retired. */
     data object NotAllowed : ItemResult
+
+    /** More than [MAX_TAGS_PER_ITEM] kinds were chosen (ADR 0086). */
+    data class TooManyTags(val maximum: Int) : ItemResult
+
+    /** A chosen kind is not one the circle offers. */
+    data object UnknownTag : ItemResult
 }
 
 /** What the home screen shows, computed from the local copy of the log. */
@@ -474,6 +496,9 @@ data class HomeData(
     val rules: RulesSummary = RulesSummary(circles.event.ConfigSettings.of(circles.policy.CircleConfig(circles.policy.CircleId(""), ""))),
     /** Skill offers of everyone still in the circle, newest last (ADR 0055). */
     val skills: List<SkillSummary> = emptyList(),
+    /** The circle's kinds of item, retired ones included, and the changes waiting for votes (ADR 0086). */
+    val tags: List<TagSummary> = emptyList(),
+    val tagProposals: List<TagProposalSummary> = emptyList(),
     /** Contribution notes (ADR 0053). */
     val contributions: ContributionsSummary = ContributionsSummary(),
     /** Pauses that are over, newest first (same visibility as [pauses]). */
@@ -855,7 +880,7 @@ class CircleApp(
         var shared = 0
         for (item in view.market.items.values.filter { it.owner == me && !it.retired }) {
             val itemKey = view.market.itemKeys[item.item to item.detailKeyId] ?: continue
-            events += author.itemUpsert(circle, day, item.item, item.name, item.itemClass, item.detailKeyId, itemKey, listOf(registration), item.minTier, item.photos)
+            events += author.itemUpsert(circle, day, item.item, item.name, item.itemClass, item.detailKeyId, itemKey, listOf(registration), item.minTier, item.photos, item.tags)
             shared++
         }
         return RegistrationBatch(events, wrapped, shared)
@@ -904,7 +929,7 @@ class CircleApp(
         val key = view.market.itemKeys[state.item to state.detailKeyId] ?: return PhotoResult.NotAllowed
         val description = ((view.market.details[state.item] as? Parsed.Ok)?.value?.get(DETAIL_DESCRIPTION) as? CborText)?.value.orEmpty()
         s.author.keyRing = view.keys
-        saveItem(s, view, state.item, state.detailKeyId, key, state.name, state.itemClass, description, state.minTier, photos)
+        saveItem(s, view, state.item, state.detailKeyId, key, state.name, state.itemClass, description, state.minTier, photos, state.tags)
         return PhotoResult.Saved
     }
 
@@ -1040,6 +1065,15 @@ class CircleApp(
         )
     }
 
+    private fun tagProposalsFor(view: circles.event.CircleView, me: MemberId, now: Int): List<TagProposalSummary> {
+        val needed = minOf(view.stewardSettings.quorum, view.stewards.size).coerceAtLeast(1)
+        val since = view.stewardSince[me]
+        val coolingOff = view.stewardSettings.quorum > 1 && since != null && since != circles.event.FOUNDING_STEWARD_DAY && now < since + circles.event.DEFAULT_STEWARD_COOL_OFF_DAYS
+        return view.market.pendingTags.filter { now <= it.firstDay + circles.event.DEFAULT_STEWARD_PROPOSAL_DAYS }.map {
+            TagProposalSummary(it.change, view.market.tags.firstOrNull { t -> t.tag == it.change.tag }?.name, it.voters.size, needed, me in it.voters, me in view.stewards && me !in it.voters && !coolingOff)
+        }
+    }
+
     /** A steward's vote for these circle rules; the same call agrees to someone else's proposal (ADR 0051). */
     suspend fun proposeRules(settings: circles.event.ConfigSettings): RulesResult {
         val (s, view) = pauseSession() ?: return RulesResult.NotAllowed
@@ -1057,6 +1091,30 @@ class CircleApp(
         refresh()
         return RulesResult.Sent(takesEffect = after.market.configs.any { it.settings == settings && it.fromDay == today() })
     }
+
+    /** A steward's vote to add, rename or retire a kind of item; the same call agrees to a proposal already made (ADR 0086). */
+    suspend fun proposeTag(change: circles.event.TagChange): TagResult {
+        val (s, view) = pauseSession() ?: return TagResult.NotAllowed
+        if (s.identity.member !in view.stewards) return TagResult.NotAllowed
+        val event = s.author.tagChange(s.circle, today(), change)
+        val id = event.eventId(crypto)
+        s.engine.enqueue(s.circle, event)
+        val after = replica.fold(s.circle, crypto, cipher, s.identity)
+        val refused = after.rejected.firstOrNull { it.id == id }
+        if (refused != null) {
+            replica.dropFromOutbox(s.circle, setOf(id))
+            return TagResult.Refused(refused.reason)
+        }
+        s.scheduler.trigger(SyncTrigger.LOCAL_WRITE)
+        refresh()
+        return TagResult.Sent(takesEffect = after.market.pendingTags.none { it.change == change })
+    }
+
+    /** A new tag id for an ADD vote; the proposer chooses it so that the others' agreement is the identical payload. */
+    fun newTag(name: String): circles.event.TagChange = circles.event.TagChange(circles.event.newTagId(crypto), circles.event.TagOp.ADD, tidyTagName(name))
+
+    /** Tidies what was typed for a kind's name the way display names are (NFKC, single spaces). */
+    fun tidyTagName(typed: String): String = circles.event.DisplayNames.tidy(typed) { circles.text.nfkc(it) }
 
     // ---- pauses (ADR 0050) ----
 
@@ -1223,7 +1281,7 @@ class CircleApp(
             val keyId = newDetailKeyId(crypto)
             val key = ItemKeys.newKey(crypto)
             s.author.keyRing = view.keys
-            s.engine.enqueue(s.circle, s.author.itemUpsert(s.circle, day, item.item, item.name, item.itemClass, keyId, key, holders, item.minTier, item.photos))
+            s.engine.enqueue(s.circle, s.author.itemUpsert(s.circle, day, item.item, item.name, item.itemClass, keyId, key, holders, item.minTier, item.photos, item.tags))
             s.engine.enqueue(s.circle, s.author.itemDetail(s.circle, day, item.item, keyId, key, CborMap.of(DETAIL_DESCRIPTION to CborText(description))))
             changed = true
         }
@@ -1572,24 +1630,28 @@ class CircleApp(
     }
 
     /** Adds an item owned by this member. Its description is sealed with a key of its own; only approved borrowers will get it. */
-    suspend fun addItem(name: String, itemClass: ItemClass, description: String, minTier: Tier? = null): ItemResult {
+    suspend fun addItem(name: String, itemClass: ItemClass, description: String, minTier: Tier? = null, tags: List<circles.event.TagId> = emptyList()): ItemResult {
         val s = session ?: return ItemResult.NotAllowed
         checkFields(name, description)?.let { return it }
         val view = replica.fold(s.circle, crypto, cipher, s.identity)
+        checkTags(view, tags, emptyList())?.let { return it }
         if (view.currentEpoch < FIRST_EPOCH || view.keys[view.currentEpoch] == null) return ItemResult.NotLetInYet
         s.author.keyRing = view.keys
-        return saveItem(s, view, newItemId(crypto), newDetailKeyId(crypto), ItemKeys.newKey(crypto), name.trim(), itemClass, description.trim(), minTier)
+        return saveItem(s, view, newItemId(crypto), newDetailKeyId(crypto), ItemKeys.newKey(crypto), name.trim(), itemClass, description.trim(), minTier, tags = tags)
     }
 
     /** Changes an item's name, kind or description. Only its owner can, and only while this device holds the item's key. */
-    suspend fun editItem(item: ItemId, name: String, itemClass: ItemClass, description: String, minTier: Tier? = null): ItemResult {
+    suspend fun editItem(item: ItemId, name: String, itemClass: ItemClass, description: String, minTier: Tier? = null, tags: List<circles.event.TagId> = emptyList()): ItemResult {
         val s = session ?: return ItemResult.NotAllowed
         checkFields(name, description)?.let { return it }
         val view = replica.fold(s.circle, crypto, cipher, s.identity)
         val state = view.market.items[item]?.takeIf { it.owner == s.identity.member && !it.retired } ?: return ItemResult.NotAllowed
         val key = view.market.itemKeys[item to state.detailKeyId] ?: return ItemResult.NotAllowed
+        // A retired kind the item already has is kept (shown as plain text); the owner picks only from the live ones (ADR 0086).
+        val kept = state.tags.filter { id -> view.market.tags.firstOrNull { it.tag == id }?.retired == true }
+        checkTags(view, tags, kept)?.let { return it }
         s.author.keyRing = view.keys
-        return saveItem(s, view, item, state.detailKeyId, key, name.trim(), itemClass, description.trim(), minTier, state.photos)
+        return saveItem(s, view, item, state.detailKeyId, key, name.trim(), itemClass, description.trim(), minTier, state.photos, tags + kept)
     }
 
     /** Takes an item off the list (its owner only). Loans already active can still be returned. */
@@ -1786,15 +1848,23 @@ class CircleApp(
         else -> null
     }
 
+    /** At most [MAX_TAGS_PER_ITEM] kinds in all, each one the circle offers (ADR 0086). */
+    private fun checkTags(view: circles.event.CircleView, picked: List<circles.event.TagId>, kept: List<circles.event.TagId>): ItemResult? = when {
+        (picked + kept).toSet().size > circles.event.MAX_TAGS_PER_ITEM -> ItemResult.TooManyTags(circles.event.MAX_TAGS_PER_ITEM)
+        picked.any { id -> view.market.tags.none { it.tag == id && !it.retired } } -> ItemResult.UnknownTag
+        else -> null
+    }
+
     private suspend fun saveItem(
         s: Session, view: circles.event.CircleView, item: ItemId, detailKeyId: String, itemKey: circles.encoding.ByteString,
         name: String, itemClass: ItemClass, description: String, minTier: Tier? = null, photos: List<circles.event.ItemPhoto> = emptyList(),
+        tags: List<circles.event.TagId> = emptyList(),
     ): ItemResult {
         // An owner may raise the lowest tier above the class default, never lower it (ADR 0025).
         val effectiveMin = minTier?.takeIf { it.rank > view.market.configOn(s.circle, today()).ruleOf(itemClass).minTier.rank }
         val mine = view.devices.values.filter { !it.revoked && it.registration.member == s.identity.member }.map { it.registration }
         val day = today()
-        s.engine.enqueue(s.circle, s.author.itemUpsert(s.circle, day, item, name, itemClass, detailKeyId, itemKey, mine, effectiveMin, photos))
+        s.engine.enqueue(s.circle, s.author.itemUpsert(s.circle, day, item, name, itemClass, detailKeyId, itemKey, mine, effectiveMin, photos, tags.distinct()))
         s.engine.enqueue(s.circle, s.author.itemDetail(s.circle, day, item, detailKeyId, itemKey, CborMap.of(DETAIL_DESCRIPTION to CborText(description))))
         s.scheduler.trigger(SyncTrigger.LOCAL_WRITE)
         refresh()
@@ -1854,6 +1924,8 @@ class CircleApp(
                 pauses = pausesFor(s.circle, view, me, myStanding.tier, now),
                 pauseHistory = pauseHistoryFor(s.circle, view, me, myStanding.tier, now),
                 rules = rulesFor(s.circle, view, me, now),
+                tags = view.market.tags.map { TagSummary(it.tag, it.name, it.retired) },
+                tagProposals = tagProposalsFor(view, me, now),
                 skills = view.market.skills.filter { !it.retired && it.owner !in view.market.departed }.map {
                     SkillSummary(it.skill, it.name, it.details, it.openTo, it.owner, it.owner == me)
                 },
@@ -1950,6 +2022,7 @@ class CircleApp(
                         ownedByMe = state.owner == s.identity.member,
                         ownerMinTier = state.minTier,
                         photos = state.photos,
+                        tags = state.tags.mapNotNull { id -> view.market.tags.firstOrNull { it.tag == id }?.let { TagSummary(it.tag, it.name, it.retired) } },
                         description = ((view.market.details[state.item] as? circles.encoding.Parsed.Ok)?.value?.get(DETAIL_DESCRIPTION) as? CborText)?.value,
                         access = if (state.owner == me) null else when (val decision = StandingRules.decide(me, state, cfg, loansNow, vouchesNow, view.stewards, now, view.market.livePausesOn(s.circle, now), view.market.contributions)) {
                             is AccessDecision.Eligible -> AccessSummary(true, emptyList(), emptyList())

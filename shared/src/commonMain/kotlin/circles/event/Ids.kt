@@ -39,6 +39,8 @@ fun newNoteId(crypto: Crypto): NoteId = NoteId(crypto.randomBytes(RANDOM_ID_BYTE
 fun newPauseId(crypto: Crypto): PauseId = PauseId(crypto.randomBytes(RANDOM_ID_BYTES).toHex())
 
 /** Names one set of recovery shares, so every device groups the shares the same way (ADR 0065). */
+fun newTagId(crypto: Crypto): TagId = TagId(crypto.randomBytes(RANDOM_ID_BYTES).toHex())
+
 fun newShareSetId(crypto: Crypto): String = crypto.randomBytes(RANDOM_ID_BYTES).toHex()
 
 /** Names one version of an item's detail key (ADR 0025). */

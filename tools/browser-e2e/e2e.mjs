@@ -468,6 +468,19 @@ try {
   await alice.evaluate(`document.getElementById('rules-level-everyday').value = '1'; document.getElementById('rules-level-valuable').value = '1'; document.getElementById('rules-wait-everyday').checked = true; document.getElementById('circle-rules-form').requestSubmit()`);
   await until(alice, has(alice, 'The new circle rules apply from today.') + ' && ' + has(alice, 'Valuable items: Level 1, in the waiting period') + ' && ' + has(alice, 'Everyday items: Level 1, in the waiting period'), 'kind rules changed');
   ok('Circle rules: the kind rules are listed, an out-of-order level is refused in words, and a change applies and is listed');
+  // Kinds of item (ADR 0086): the lone steward adds two kinds, one is refused as a duplicate, the owner picks one, a fourth pick is refused, and the item shows it.
+  await until(alice, has(alice, 'Kinds of item') + ' && document.getElementById("tag-add-form") !== null', 'kinds section');
+  await submit(alice, 'tag-add-form', { 'tag-name': 'Garden' }); await until(alice, has(alice, 'Garden'), 'garden added');
+  await submit(alice, 'tag-add-form', { 'tag-name': 'garden' }); await until(alice, has(alice, 'A kind with that name already exists.'), 'duplicate kind refused in words');
+  await submit(alice, 'tag-add-form', { 'tag-name': 'Kitchen' }); await until(alice, has(alice, 'Kitchen'), 'kitchen added');
+  await checkAccessibility(alice, 'stewards with kinds of item');
+  await alice.evaluate('location.hash = "#/items"'); await until(alice, has(alice, 'Long ladder'), 'items for kinds');
+  await click(alice, 'edit-item'); await until(alice, 'document.querySelector("input[name=tag]") !== null', 'kind tick boxes on the change page');
+  await checkAccessibility(alice, 'change item with kinds');
+  await alice.evaluate('document.querySelector("input[name=tag]").click(); document.getElementById("item-edit-form").requestSubmit()');
+  await until(alice, has(alice, 'Kind of item: Garden'), 'item shows its kind'); ok('Kinds of item: a steward adds kinds, a duplicate is refused in words, and the owner picks one that shows under the item');
+  await checkAccessibility(alice, 'items with a kind');
+  await alice.evaluate('location.hash = "#/stewards"'); await until(alice, has(alice, 'Kinds of item'), 'back to stewards');
   await click(alice, 'steward-add'); await until(alice, has(alice, 'The steward change takes effect now.'), 'bea made steward'); await until(alice, has(alice, 'Steward since') , 'two stewards listed');
   ok('alice made bea a steward (a lone steward needs no one else to agree)');
   await syncUntil(bea, 'location.hash = "#/stewards"; ' + has(bea, 'Can vote from'), 'bea sees she is cooling off'); ok('bea, the new steward, sees when she can vote from');

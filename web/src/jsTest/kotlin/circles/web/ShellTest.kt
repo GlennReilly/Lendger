@@ -275,7 +275,7 @@ class ShellViewTest {
                 assertTrue(match.groupValues[1].endsWith(": "), "label text was '${match.groupValues[1]}'")
             }
         }
-        assertEquals(8 + 3 + 1 + 3 + 2 + 4 + 4 + 9 + 1 - 1 + 2 + 2 + 1 + 3, labels) // + the name on Settings and on the first-name page (ADR 0068) + the date format on Settings (ADR 0080)
+        assertEquals(8 + 3 + 1 + 3 + 2 + 4 + 4 + 9 + 1 - 1 + 2 + 2 + 1 + 3 + 1, labels) // + the name on Settings and on the first-name page (ADR 0068) + the date format on Settings (ADR 0080)
     }
 
     @Test fun everyPassphraseButtonStartsHiddenUntilThePassphraseIsLongEnough() {
@@ -504,6 +504,46 @@ class ShellViewTest {
     }
 
     private fun items(home: HomeData) = render(open(home).copy(screen = Screen.Items))
+
+    private val garden = circles.app.TagSummary(circles.event.TagId("5".repeat(32)), "Garden", retired = false)
+    private val oldKind = circles.app.TagSummary(circles.event.TagId("6".repeat(32)), "Camping", retired = true)
+
+    @Test fun stewardsSeeTheKindsOfItemWithFormsAndPendingVotes() {
+        val proposal = circles.app.TagProposalSummary(circles.event.TagChange(garden.tag, circles.event.TagOp.RETIRE, null), "Garden", 1, 2, iAgree = false, canAgree = true)
+        val html = render(open(home().copy(tags = listOf(garden, oldKind), tagProposals = listOf(proposal))).copy(screen = Screen.Stewards))
+        assertTrue("Kinds of item" in html)
+        assertTrue("""id="$FORM_TAG_ADD"""" in html)
+        assertTrue("""id="$FORM_TAG_RENAME_PREFIX${garden.tag.v}"""" in html)
+        assertTrue("""$ATTR_ACTION="$ACTION_TAG_RETIRE"""" in html)
+        assertTrue("Retired kinds: Camping." in html)
+        assertTrue("Retire the kind" in html && "1 of 2 stewards agree." in html)
+        assertTrue("""$ATTR_ACTION="$ACTION_TAG_AGREE"""" in html)
+    }
+
+    @Test fun aMemberWhoIsNotAStewardCannotProposeKinds() {
+        val html = render(open(home(steward = false).copy(tags = listOf(garden))).copy(screen = Screen.Stewards))
+        assertTrue("Garden" in html)
+        assertFalse("""id="$FORM_TAG_ADD"""" in html)
+        assertFalse(ACTION_TAG_RETIRE in html)
+    }
+
+    @Test fun theItemFormOffersLiveKindsAsTickBoxesAndKeepsARetiredOneAsText() {
+        val has = ladder.copy(tags = listOf(garden, oldKind))
+        val html = render(open(home(items = listOf(has)).copy(tags = listOf(garden, oldKind))).copy(screen = Screen.EditItem, editing = has.item))
+        assertTrue("""name="$FIELD_TAG"""" in html)
+        assertEquals(1, Regex("""name="$FIELD_TAG"""").findAll(html).count())
+        assertTrue(Regex("""value="${garden.tag.v}" checked="checked"""").containsMatchIn(html))
+        assertTrue("No longer offered, kept on this item: Camping." in html)
+    }
+
+    @Test fun theItemsPageHasAKindFilterAndShowsTagsUnderItems() {
+        val html = items(home(items = listOf(ladder.copy(tags = listOf(garden)), drill)).copy(tags = listOf(garden)))
+        assertTrue("""id="$ID_ITEM_TAG"""" in html)
+        assertTrue("All kinds" in html)
+        assertTrue("Kind of item: Garden" in html)
+        assertTrue("""$ATTR_ITEM_TAGS="${garden.tag.v}"""" in html)
+        assertFalse("""id="$ID_ITEM_TAG"""" in items(home(items = listOf(ladder, drill))), "no kinds, no menu")
+    }
 
     @Test fun theItemsPageSaysWhenYouCannotSeeItemsYet() {
         val html = items(home(canRead = false))

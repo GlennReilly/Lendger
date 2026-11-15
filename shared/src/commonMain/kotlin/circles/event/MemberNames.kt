@@ -92,7 +92,9 @@ object DisplayNames {
         }
     }
 
-    private fun isControl(point: Int): Boolean = point <= LAST_C0_CONTROL || point in DELETE..LAST_C1_CONTROL
+    internal val FORBIDDEN: Set<Int> get() = FORBIDDEN_IN_NAME
+
+    internal fun isControl(point: Int): Boolean = point <= LAST_C0_CONTROL || point in DELETE..LAST_C1_CONTROL
 
     /** Only digits; or only hex digits, at least [ID_LIKE_HEX_DIGITS] of them (spaces ignored), like "2b69 a182". Short hex words such as "Bea" or "Ada" are names. */
     private fun looksLikeAnId(name: String): Boolean {
@@ -102,7 +104,7 @@ object DisplayNames {
     }
 
     /** The code points of [text], or null if it holds a lone surrogate. */
-    private fun codePoints(text: String): List<Int>? {
+    internal fun codePoints(text: String): List<Int>? {
         val points = ArrayList<Int>(text.length)
         var i = 0
         while (i < text.length) {

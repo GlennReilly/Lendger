@@ -45,6 +45,8 @@ data class ItemUpsert(
     val detailKeyId: String,
     val keyWraps: List<DeviceKeyWrap>,
     val photos: List<ItemPhoto> = emptyList(),
+    /** The kinds the owner chose, at most [MAX_TAGS_PER_ITEM] (ADR 0086). */
+    val tags: List<TagId> = emptyList(),
 )
 
 data class ItemRetire(val item: ItemId)
@@ -151,6 +153,9 @@ private const val K_VOUCHEE = "vouchee"
 private const val K_EXPIRES = "expiresDay"
 private const val K_PHOTO = "photo"
 private const val K_PHOTOS = "photos"
+private const val K_TAGS = "tags"
+private const val K_TAG = "tag"
+private const val K_OP = "op"
 private const val K_THUMB = "thumb"
 private const val K_EPOCH = "epoch"
 private const val K_ALT = "alt"
@@ -195,6 +200,7 @@ object MarketPayloads {
             v.minTier?.let { put(K_MIN_TIER, CborText(it.name)) }
             put(K_DETAIL_KEY, CborText(v.detailKeyId))
             put(K_KEY_WRAPS, wraps(v.keyWraps))
+            if (v.tags.isNotEmpty()) put(K_TAGS, CborArray(v.tags.map { CborText(it.v) }))
             if (v.photos.isNotEmpty()) {
                 put(K_PHOTOS, CborArray(v.photos.map { CborMap.of(K_PHOTO to CborText(it.photo), K_THUMB to CborText(it.thumb), K_EPOCH to CborInt(it.epoch.toLong()), K_ALT to CborText(it.alt)) }))
             }
@@ -314,7 +320,7 @@ object MarketPayloads {
     fun loanReturn(v: LoanReturn): CborMap = CborMap.of(K_LOAN to CborText(v.loan.v), K_OUTCOME to CborText(v.outcome.name))
 
     fun parseItemUpsert(map: CborMap): Parsed<ItemUpsert> {
-        keys(map, required = setOf(K_ITEM, K_NAME, K_CLASS, K_DETAIL_KEY, K_KEY_WRAPS), optional = setOf(K_MIN_TIER, K_PHOTOS))?.let { return Parsed.Invalid(it) }
+        keys(map, required = setOf(K_ITEM, K_NAME, K_CLASS, K_DETAIL_KEY, K_KEY_WRAPS), optional = setOf(K_MIN_TIER, K_PHOTOS, K_TAGS))?.let { return Parsed.Invalid(it) }
         val item = itemId(map) ?: return Parsed.Invalid("item must be 32 lowercase hex characters")
         val name = text(map, K_NAME, MAX_ITEM_NAME_CHARS)?.takeIf { it.isNotBlank() } ?: return Parsed.Invalid("name must be 1 to $MAX_ITEM_NAME_CHARS characters")
         val itemClass = enumOf<ItemClass>(map, K_CLASS) ?: return Parsed.Invalid("class is not a known item class")
@@ -323,7 +329,33 @@ object MarketPayloads {
         val detailKeyId = randomId(map, K_DETAIL_KEY) ?: return Parsed.Invalid("detailKeyId must be 32 lowercase hex characters")
         val keyWraps = readWraps(map) ?: return Parsed.Invalid("keyWraps must list 1 to $MAX_KEY_WRAPS distinct devices with sealed keys")
         val photos = readPhotos(map) ?: return Parsed.Invalid("photos must list at most $MAX_PHOTOS_PER_ITEM entries with two blob hashes, an epoch and a description of 1 to $MAX_PHOTO_ALT_CHARS characters")
-        return Parsed.Ok(ItemUpsert(ItemId(item), name, itemClass, minTier, detailKeyId, keyWraps, photos))
+        val tags = readTags(map) ?: return Parsed.Invalid("tags must list at most $MAX_TAGS_PER_ITEM distinct kinds, each 32 lowercase hex characters")
+        return Parsed.Ok(ItemUpsert(ItemId(item), name, itemClass, minTier, detailKeyId, keyWraps, photos, tags))
+    }
+
+    private fun readTags(map: CborMap): List<TagId>? {
+        val raw = map[K_TAGS] ?: return emptyList()
+        val list = (raw as? CborArray)?.items ?: return null
+        val ids = list.map { (it as? CborText)?.value?.takeIf { v -> isValidRandomId(v) } ?: return null }
+        return if (ids.size in 1..MAX_TAGS_PER_ITEM && ids.toSet().size == ids.size) ids.map { TagId(it) } else null
+    }
+
+    fun tagChange(v: TagChange): CborMap = CborMap(
+        buildMap {
+            put(K_TAG, CborText(v.tag.v))
+            put(K_OP, CborText(v.op.name))
+            v.name?.let { put(K_NAME, CborText(it)) }
+        },
+    )
+
+    fun parseTagChange(map: CborMap): Parsed<TagChange> {
+        keys(map, required = setOf(K_TAG, K_OP), optional = setOf(K_NAME))?.let { return Parsed.Invalid(it) }
+        val tag = randomId(map, K_TAG) ?: return Parsed.Invalid("tag must be 32 lowercase hex characters")
+        val op = enumOf<TagOp>(map, K_OP) ?: return Parsed.Invalid("op must be ADD, RENAME or RETIRE")
+        val name = if (map[K_NAME] == null) null else (map[K_NAME] as? CborText)?.value ?: return Parsed.Invalid("name must be text")
+        if (op == TagOp.RETIRE && name != null) return Parsed.Invalid("a retirement carries no name")
+        if (op != TagOp.RETIRE && name == null) return Parsed.Invalid("an addition or rename needs a name")
+        return Parsed.Ok(TagChange(TagId(tag), op, name))
     }
 
     fun parseItemRetire(map: CborMap): Parsed<ItemRetire> {

@@ -352,12 +352,30 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
         return shown
     }
 
+    /** Narrows the Items list by the search words and the chosen kind, on this device (ADR 0086). */
+    private fun filterItems() {
+        val words = ((document.getElementById(ID_ITEM_SEARCH) as? HTMLInputElement)?.value ?: "").trim().lowercase().split(' ').filter { it.isNotEmpty() }
+        val tag = (document.getElementById(ID_ITEM_TAG) as? HTMLSelectElement)?.value.orEmpty()
+        val rows = document.querySelectorAll("[$ATTR_ITEM_TEXT]")
+        var shown = 0
+        for (index in 0 until rows.length) {
+            val row = rows.item(index) as? HTMLElement ?: continue
+            val text = row.getAttribute(ATTR_ITEM_TEXT) ?: ""
+            val tags = (row.getAttribute(ATTR_ITEM_TAGS) ?: "").split(' ')
+            val match = words.all { text.contains(it) } && (tag.isEmpty() || tag in tags)
+            row.hidden = !match
+            if (match) shown++
+        }
+        document.getElementById(ID_ITEM_COUNT)?.textContent = if (shown == 1) "1 item" else "$shown items"
+    }
+
     private fun onInput(event: Event) {
         (event.target as? HTMLInputElement)?.takeIf { it.id == ID_SKILL_SEARCH }?.let { field ->
             // Filtering happens here, on this device, as you type: nothing is sent anywhere.
             val shown = filterRows(field.value, ATTR_SKILL_TEXT)
             document.getElementById(ID_SKILL_COUNT)?.textContent = if (shown == 1) "1 offer" else "$shown offers"
         }
+        if ((event.target as? Element)?.id.let { it == ID_ITEM_SEARCH || it == ID_ITEM_TAG }) filterItems()
         (event.target as? HTMLSelectElement)?.takeIf { it.id == FIELD_DATE_FORMAT }?.let { select ->
             // Choosing a date format applies at once (with the other two choices as they stand in the form).
             val form = select.closest("form") as? HTMLFormElement ?: return@let
@@ -424,6 +442,10 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
                 if (member != null) reportName(circleApp.confirmName(member), "Identity confirmed. Others now see that you checked this member's identity in person.")
                 return@busyLaunch
             }
+            if (form.id.startsWith(FORM_TAG_RENAME_PREFIX)) {
+                form.getAttribute(ATTR_TAG)?.let { tag -> reportTag(circleApp.proposeTag(circles.event.TagChange(circles.event.TagId(tag), circles.event.TagOp.RENAME, circleApp.tidyTagName(field(FIELD_TAG_NAME))))) }
+                return@busyLaunch
+            }
             if (form.id.startsWith(FORM_LET_IN_PREFIX)) {
                 val device = form.getAttribute(ATTR_DEVICE)?.let(::DeviceId)
                 val home = (state.model as? AppModel.Open)?.home
@@ -466,8 +488,9 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
                     if (link == null) dispatch(AppAction.Notice("That does not look like an invite link. Paste the whole link you were sent."))
                     else dispatch(AppAction.InviteSeen(link))
                 }
-                FORM_ITEM_ADD -> reportItem(circleApp.addItem(field(FIELD_NAME), kind(field(FIELD_KIND)), field(FIELD_DETAILS), tierOrNull(field(FIELD_MIN_TIER))))
-                FORM_ITEM_EDIT -> state.editing?.let { reportItem(circleApp.editItem(it, field(FIELD_NAME), kind(field(FIELD_KIND)), field(FIELD_DETAILS), tierOrNull(field(FIELD_MIN_TIER)))) }
+                FORM_ITEM_ADD -> reportItem(circleApp.addItem(field(FIELD_NAME), kind(field(FIELD_KIND)), field(FIELD_DETAILS), tierOrNull(field(FIELD_MIN_TIER)), pickedTags(form)))
+                FORM_ITEM_EDIT -> state.editing?.let { reportItem(circleApp.editItem(it, field(FIELD_NAME), kind(field(FIELD_KIND)), field(FIELD_DETAILS), tierOrNull(field(FIELD_MIN_TIER)), pickedTags(form))) }
+                FORM_TAG_ADD -> reportTag(circleApp.proposeTag(circleApp.newTag(field(FIELD_TAG_NAME))))
                 FORM_LOAN_REQUEST -> {
                     val from = CalendarDay.parse(field(FIELD_FROM))
                     val to = CalendarDay.parse(field(FIELD_TO))
@@ -681,7 +704,26 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
             is ItemResult.DescriptionTooLong -> dispatch(AppAction.Notice("Keep the details to ${result.maximum} characters or fewer."))
             ItemResult.NotLetInYet -> dispatch(AppAction.Notice("A steward needs to approve your access before you can add items."))
             ItemResult.NotAllowed -> dispatch(AppAction.Notice("Only the owner of an item can change it, and only while it is on the list."))
+            is ItemResult.TooManyTags -> dispatch(AppAction.Notice("An item can have at most ${result.maximum} kinds. Untick one and try again."))
+            ItemResult.UnknownTag -> dispatch(AppAction.Notice("One of the kinds you chose is no longer offered by the circle. Reload the page and choose again."))
         }
+    }
+
+    private fun pickedTags(form: HTMLFormElement): List<circles.event.TagId> {
+        val boxes = form.querySelectorAll("input[name=$FIELD_TAG]")
+        return (0 until boxes.length).mapNotNull { (boxes.item(it) as? HTMLInputElement)?.takeIf { box -> box.checked }?.value }.map { circles.event.TagId(it) }
+    }
+
+    private fun reportTag(result: circles.app.TagResult) {
+        dispatch(
+            AppAction.Notice(
+                when (result) {
+                    is circles.app.TagResult.Sent -> if (result.takesEffect) "The change to the kinds of item applies from today." else "Your vote was sent. The change applies when enough stewards agree."
+                    is circles.app.TagResult.Refused -> Notices.sentenceOf(result.reason)
+                    circles.app.TagResult.NotAllowed -> "Only a steward can change the circle's kinds of item."
+                },
+            ),
+        )
     }
 
     private fun reportLoan(result: LoanResult, doneText: String, thenGo: Screen?) {
@@ -841,6 +883,13 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
                     }
                     ExportResult.Incomplete -> dispatch(AppAction.Notice("This device does not have the whole log yet. Press Sync now, then try again."))
                     ExportResult.NotAllowed, null -> dispatch(AppAction.Notice("Sign in to the circle before exporting it."))
+                }
+                ACTION_TAG_RETIRE -> target.getAttribute(ATTR_TAG)?.let { tag ->
+                    reportTag(circleApp?.proposeTag(circles.event.TagChange(circles.event.TagId(tag), circles.event.TagOp.RETIRE, null)) ?: circles.app.TagResult.NotAllowed)
+                }
+                ACTION_TAG_AGREE -> target.getAttribute(ATTR_TAG)?.let { tag ->
+                    val op = circles.event.TagOp.entries.firstOrNull { it.name == target.getAttribute(ATTR_TAG_OP) }
+                    if (op != null) reportTag(circleApp?.proposeTag(circles.event.TagChange(circles.event.TagId(tag), op, target.getAttribute(ATTR_TAG_NAME))) ?: circles.app.TagResult.NotAllowed)
                 }
                 ACTION_RULES_AGREE -> target.getAttribute(ATTR_RULES)?.split(':')?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 15 }?.let {
                     reportRules(circleApp?.proposeRules(rulesOf(it)) ?: RulesResult.NotAllowed)

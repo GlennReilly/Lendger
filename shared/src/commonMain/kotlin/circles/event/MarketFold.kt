@@ -25,6 +25,8 @@ data class ItemState(
     val sealedDetails: Map<String, ByteString>,
     /** The item's photos as of its latest `item.upsert` (ADR 0060). */
     val photos: List<ItemPhoto> = emptyList(),
+    /** The kinds the owner chose (ADR 0086). */
+    val tags: List<TagId> = emptyList(),
 )
 
 data class LoanState(
@@ -146,6 +148,9 @@ class MarketView(
     val names: Map<MemberId, NameState> = emptyMap(),
     /** When each member's identity counted as confirmed, as stretches of the log (ADR 0079). */
     val identityIntervals: Map<MemberId, List<IdentityInterval>> = emptyMap(),
+    /** The circle's kinds of item, retired ones included, in the order they were added (ADR 0086), and the changes still short of enough votes. */
+    val tags: List<TagState> = emptyList(),
+    val pendingTags: List<PendingTag> = emptyList(),
 ) {
     /** Who confirmed [member]'s current name and still counts: confirmers who have since left do not (ADR 0068). */
     fun nameConfirmers(member: MemberId): Set<MemberId> =
@@ -177,7 +182,7 @@ private val MARKET_TYPES = setOf(
     EventType.LOAN_REQUEST, EventType.LOAN_RESPOND, EventType.LOAN_HANDOVER, EventType.LOAN_RETURN, EventType.LOAN_CANCEL, EventType.VOUCH,
     EventType.STANDING_CONFIRM, EventType.LOAN_DISPUTE, EventType.LOAN_RESOLVE,
     EventType.PAUSE_PROPOSE, EventType.PAUSE_REVIEW, EventType.PAUSE_APPEAL, EventType.PAUSE_LIFT, EventType.CONFIG_UPDATE, EventType.STANDING_NOTE,
-    EventType.SKILL_UPSERT, EventType.SKILL_RETIRE, EventType.MEMBER_PROFILE, EventType.MEMBER_NAME_CONFIRM,
+    EventType.SKILL_UPSERT, EventType.SKILL_RETIRE, EventType.MEMBER_PROFILE, EventType.MEMBER_NAME_CONFIRM, EventType.TAG_CHANGE,
 )
 
 internal fun isMarketType(type: String): Boolean = EventType.fromWire(type) in MARKET_TYPES
@@ -209,6 +214,8 @@ internal class MarketFold(
 
     private fun confirmedNotes(): List<ContributionState> = notes.values.filter { it.confirmedDay != null }
     private val configProposals = linkedMapOf<ConfigSettings, PendingConfig>()
+    private val tags = linkedMapOf<TagId, TagState>()
+    private val tagProposals = linkedMapOf<TagChange, PendingTag>()
 
     /** The circle's rules in force on [day] (ADR 0051). */
     private fun config(day: Int): circles.policy.CircleConfig =
@@ -223,7 +230,7 @@ internal class MarketFold(
             if (problem != null) rejected[event.id] = problem
         }
         val keys = myItemKeys()
-        return MarketResult(MarketView(items.toMap(), loans.toMap(), keys, openDetails(keys), vouches.toList(), devices.values.map { it.registration.member }.toSet().mapNotNull { member -> removedOn(member)?.let { member to it } }.toMap(), pauses.values.toList(), configs.toList(), configProposals.values.toList(), baseConfig, notes.values.toList(), skills.values.toList(), names.toMap(), identityIntervals.mapValues { it.value.toList() }), rejected.toMap())
+        return MarketResult(MarketView(items.toMap(), loans.toMap(), keys, openDetails(keys), vouches.toList(), devices.values.map { it.registration.member }.toSet().mapNotNull { member -> removedOn(member)?.let { member to it } }.toMap(), pauses.values.toList(), configs.toList(), configProposals.values.toList(), baseConfig, notes.values.toList(), skills.values.toList(), names.toMap(), identityIntervals.mapValues { it.value.toList() }, tags.values.toList(), tagProposals.values.toList()), rejected.toMap())
     }
 
     private fun apply(e: Envelope, payload: CborMap, id: EventId): String? = when (EventType.fromWire(e.type)) {
@@ -241,6 +248,7 @@ internal class MarketFold(
         EventType.MEMBER_PROFILE -> parse(NamePayloads.parseProfile(payload)) { setName(e.author, it, e.day, id) }
         EventType.MEMBER_NAME_CONFIRM -> parse(NamePayloads.parseConfirmation(payload)) { confirmName(e.author, it, e.day, id) }
         EventType.STANDING_NOTE -> parse(MarketPayloads.parseStandingNote(payload)) { noteContribution(e.author, it, e.day, id) }
+        EventType.TAG_CHANGE -> parse(MarketPayloads.parseTagChange(payload)) { tagChange(e.author, it, e.day, id) }
         EventType.CONFIG_UPDATE -> parse(MarketPayloads.parseConfigUpdate(payload)) { configUpdate(e.author, it, e.day, id) }
         EventType.PAUSE_PROPOSE -> parse(MarketPayloads.parsePausePropose(payload)) { proposePause(e.author, it, e.day, id) }
         EventType.PAUSE_REVIEW -> parse(MarketPayloads.parsePauseReview(payload)) { reviewPause(e.author, it, e.day, id) }
@@ -269,7 +277,9 @@ internal class MarketFold(
             if (existing.retired) return "The item has been archived, so it cannot be changed or asked for."
         }
         val wraps = (existing?.keyWraps.orEmpty()) + (v.detailKeyId to (existing?.keyWraps?.get(v.detailKeyId).orEmpty() + v.keyWraps.associate { it.device to it.wrapped }))
-        items[v.item] = ItemState(v.item, author, v.name, v.itemClass, v.minTier, v.detailKeyId, false, wraps, existing?.sealedDetails.orEmpty(), v.photos)
+        v.tags.firstOrNull { tags[it] == null }?.let { return "That kind is not in the circle's list." }
+        v.tags.firstOrNull { tags.getValue(it).retired && it !in existing?.tags.orEmpty() }?.let { return "A retired kind cannot be added to an item." }
+        items[v.item] = ItemState(v.item, author, v.name, v.itemClass, v.minTier, v.detailKeyId, false, wraps, existing?.sealedDetails.orEmpty(), v.photos, v.tags)
         return null
     }
 
@@ -438,6 +448,55 @@ internal class MarketFold(
             configProposals.remove(v)
         } else {
             configProposals[v] = proposal
+        }
+        return null
+    }
+
+    // ---- kinds of item (ADR 0086) ----
+
+    private fun tagProblem(v: TagChange): String? {
+        val current = tags[v.tag]
+        val key = v.name?.let { NameKey.of(it) }
+        fun taken() = tags.values.any { !it.retired && it.tag != v.tag && NameKey.of(it.name) == key }
+        return when (v.op) {
+            TagOp.ADD -> v.name?.let { TagNames.problem(it) } ?: when {
+                current != null -> "That kind is already in the list."
+                tags.values.count { !it.retired } >= MAX_LIVE_TAGS -> TAG_LIMIT_REACHED
+                taken() -> TAG_NAME_TAKEN
+                else -> null
+            }
+            TagOp.RENAME -> v.name?.let { TagNames.problem(it) } ?: when {
+                current == null -> "That kind is not in the circle's list."
+                current.retired -> "That kind has been retired."
+                current.name == v.name -> "That is already the kind's name."
+                taken() -> TAG_NAME_TAKEN
+                else -> null
+            }
+            TagOp.RETIRE -> when {
+                current == null -> "That kind is not in the circle's list."
+                current.retired -> "That kind has already been retired."
+                else -> null
+            }
+        }
+    }
+
+    private fun tagChange(author: MemberId, v: TagChange, day: Int, id: EventId): String? {
+        val facts = stewardFactsAt(id)
+        if (author !in facts.stewards) return "Only a steward can change the circle's kinds of item."
+        val since = facts.since[author]
+        if (facts.quorum > 1 && since != null && since != FOUNDING_STEWARD_DAY && day < since + DEFAULT_STEWARD_COOL_OFF_DAYS) return "A new steward cannot vote until ${circles.app.ReasonDates.token(since + DEFAULT_STEWARD_COOL_OFF_DAYS)}."
+        tagProblem(v)?.let { return it }
+        val open = tagProposals[v]?.takeIf { day <= it.firstDay + DEFAULT_STEWARD_PROPOSAL_DAYS }
+        val proposal = (open ?: PendingTag(v, emptySet(), day)).let { it.copy(voters = it.voters + author) }
+        if (proposal.voters.count { it in facts.stewards } >= minOf(facts.quorum, facts.stewards.size)) {
+            tagProposals.remove(v)
+            when (v.op) {
+                TagOp.ADD -> tags[v.tag] = TagState(v.tag, v.name.orEmpty(), false, day)
+                TagOp.RENAME -> tags[v.tag] = tags.getValue(v.tag).copy(name = v.name.orEmpty())
+                TagOp.RETIRE -> tags[v.tag] = tags.getValue(v.tag).copy(retired = true)
+            }
+        } else {
+            tagProposals[v] = proposal
         }
         return null
     }

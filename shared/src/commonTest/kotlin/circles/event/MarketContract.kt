@@ -833,6 +833,98 @@ abstract class MarketContract {
         )
     }
 
+    // ---- kinds of item (ADR 0086) ----
+
+    private fun World.tagAdd(by: EventAuthor, name: String, id: TagId = newTagId(crypto), day: Int = DAY) = TagChange(id, TagOp.ADD, name) to by.tagChange(circle, day, TagChange(id, TagOp.ADD, name))
+
+    @Test
+    fun aStewardAddsRenamesAndRetiresKindsAndTheListShowsThem() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 1))
+        val (garden, gardenEvent) = w.tagAdd(w.founder, "Garden")
+        val (kitchen, kitchenEvent) = w.tagAdd(w.founder, "Kitchen")
+        w.log += listOf(gardenEvent, kitchenEvent)
+        assertEquals(listOf("Garden", "Kitchen"), w.foldAs(w.founder).market.tags.map { it.name })
+        w.log += w.founder.tagChange(w.circle, DAY + 1, TagChange(garden.tag, TagOp.RENAME, "Gardening"))
+        w.log += w.founder.tagChange(w.circle, DAY + 2, TagChange(kitchen.tag, TagOp.RETIRE, null))
+        val view = w.foldAs(w.founder)
+        assertEquals(emptyList(), view.rejected)
+        assertEquals(listOf("Gardening" to false, "Kitchen" to true), view.market.tags.map { it.name to it.retired })
+        // A retired kind's name is free again.
+        w.log += w.tagAdd(w.founder, "kitchen", day = DAY + 3).second
+        assertEquals(emptyList(), w.foldAs(w.founder).rejected)
+    }
+
+    @Test
+    fun kindChangesAreRefusedForNonStewardsBadNamesDuplicatesAndTooMany() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 1))
+        val (garden, gardenEvent) = w.tagAdd(w.founder, "Garden")
+        w.log += gardenEvent
+        fun reason(e: Envelope) = w.reasons(listOf(e)).single()
+        assertEquals("Only a steward can change the circle's kinds of item.", reason(w.tagAdd(w.bea, "Camping").second))
+        assertEquals(TAG_NAME_TAKEN, reason(w.tagAdd(w.founder, "GARDEN").second), "case is ignored")
+        assertEquals("A kind's name cannot be empty.", reason(w.tagAdd(w.founder, "").second))
+        assertEquals("A kind's name can have at most 24 characters.", reason(w.tagAdd(w.founder, "x".repeat(25)).second))
+        assertEquals("A kind's name cannot start or end with a space.", reason(w.tagAdd(w.founder, " Camping").second))
+        assertEquals("That is already the kind's name.", reason(w.founder.tagChange(w.circle, DAY, TagChange(garden.tag, TagOp.RENAME, "Garden"))))
+        assertEquals("That kind is not in the circle's list.", reason(w.founder.tagChange(w.circle, DAY, TagChange(newTagId(w.crypto), TagOp.RETIRE, null))))
+        assertEquals("That kind is already in the list.", reason(w.founder.tagChange(w.circle, DAY, TagChange(garden.tag, TagOp.ADD, "Other"))))
+        for (n in 2..MAX_LIVE_TAGS) w.log += w.tagAdd(w.founder, "Kind $n").second
+        assertEquals(emptyList(), w.foldAs(w.founder).rejected)
+        assertEquals(TAG_LIMIT_REACHED, reason(w.tagAdd(w.founder, "One too many").second))
+    }
+
+    @Test
+    fun withAQuorumOfTwoAKindChangeNeedsTheSameVoteFromTwoStewardsInTime() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 2))
+        w.log += w.founder.stewardAdd(w.circle, w.bea.identity.member, DAY)
+        val (change, first) = w.tagAdd(w.founder, "Camping", day = DAY + 7)
+        w.log += first
+        var view = w.foldAs(w.founder)
+        assertEquals(emptyList(), view.market.tags)
+        assertEquals(setOf(w.founder.identity.member), view.market.pendingTags.single().voters)
+        // A different id is a different proposal, not a vote.
+        view = w.foldAs(w.founder, w.log + w.bea.tagChange(w.circle, DAY + 7, TagChange(newTagId(w.crypto), TagOp.ADD, "Camping")))
+        assertEquals(emptyList(), view.market.tags)
+        assertEquals(2, view.market.pendingTags.size)
+        // The identical payload from the second steward takes effect.
+        view = w.foldAs(w.founder, w.log + w.bea.tagChange(w.circle, DAY + 8, change))
+        assertEquals(listOf("Camping"), view.market.tags.map { it.name })
+        // Too late: a vote after the 14-day window starts a new proposal.
+        val (late, lateEvent) = w.tagAdd(w.founder, "Tools", day = DAY + 8)
+        w.log += lateEvent
+        val stale = w.foldAs(w.founder, w.log + w.bea.tagChange(w.circle, DAY + 8 + 15, late))
+        assertEquals(emptyList(), stale.market.tags.filter { it.name == "Tools" })
+    }
+
+    @Test
+    fun ownersPickKindsAndARetiredKindStaysOnOldItemsButCannotBeAdded() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 1))
+        val (garden, e1) = w.tagAdd(w.founder, "Garden")
+        val (kitchen, e2) = w.tagAdd(w.founder, "Kitchen")
+        w.log += listOf(e1, e2)
+        val item = newItemId(w.crypto); val key = ItemKeys.newKey(w.crypto); val keyId = newDetailKeyId(w.crypto)
+        val regs = listOf(w.founder.identity.registration)
+        w.log += w.founder.itemUpsert(w.circle, DAY + 1, item, "Spade", ItemClass.EVERYDAY, keyId, key, regs, null, emptyList(), listOf(garden.tag, kitchen.tag))
+        assertEquals(listOf(garden.tag, kitchen.tag), w.foldAs(w.founder).market.items.getValue(item).tags)
+        // An unknown kind is refused.
+        assertEquals(listOf("That kind is not in the circle's list."), w.reasons(listOf(w.founder.itemUpsert(w.circle, DAY + 1, item, "Spade", ItemClass.EVERYDAY, keyId, key, regs, null, emptyList(), listOf(newTagId(w.crypto))))))
+        // Retire Kitchen: the item keeps it; the owner can save again with it, but a new item cannot take it.
+        w.log += w.founder.tagChange(w.circle, DAY + 2, TagChange(kitchen.tag, TagOp.RETIRE, null))
+        w.log += w.founder.itemUpsert(w.circle, DAY + 3, item, "Spade", ItemClass.EVERYDAY, keyId, key, regs, null, emptyList(), listOf(garden.tag, kitchen.tag))
+        val view = w.foldAs(w.founder)
+        assertEquals(emptyList(), view.rejected)
+        assertEquals(listOf(garden.tag, kitchen.tag), view.market.items.getValue(item).tags)
+        val other = newItemId(w.crypto)
+        assertEquals(listOf("A retired kind cannot be added to an item."), w.reasons(listOf(w.founder.itemUpsert(w.circle, DAY + 3, other, "Rake", ItemClass.EVERYDAY, newDetailKeyId(w.crypto), key, regs, null, emptyList(), listOf(kitchen.tag)))))
+        // An item written before kinds existed has none.
+        val (plain, _) = w.share(w.founder, ItemClass.EVERYDAY)
+        assertEquals(emptyList(), w.foldAs(w.founder).market.items.getValue(plain).tags)
+    }
+
     // ---- circle rules (ADR 0051) ----
 
     private fun World.defaults() = ConfigSettings.of(StandingRules.defaultConfig(circle))

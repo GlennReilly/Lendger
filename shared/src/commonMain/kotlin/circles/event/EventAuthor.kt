@@ -114,10 +114,15 @@ class EventAuthor(
         ownerDevices: List<DeviceRegistration>,
         minTier: Tier? = null,
         photos: List<ItemPhoto> = emptyList(),
+        tags: List<TagId> = emptyList(),
     ): Envelope {
         val wraps = ownerDevices.map { DeviceKeyWrap(it.device, ItemKeys.wrap(cipher, it.boxPub, circle, item.v, itemKey)) }
-        return build(circle, EventType.ITEM_UPSERT, day, CborMap.EMPTY, MarketPayloads.itemUpsert(ItemUpsert(item, name, itemClass, minTier, detailKeyId, wraps, photos)))
+        return build(circle, EventType.ITEM_UPSERT, day, CborMap.EMPTY, MarketPayloads.itemUpsert(ItemUpsert(item, name, itemClass, minTier, detailKeyId, wraps, photos, tags)))
     }
+
+    /** A steward's vote for a change to the circle's kinds of item (ADR 0086); the same call agrees to a proposal already made. */
+    fun tagChange(circle: CircleId, day: Int, change: TagChange): Envelope =
+        build(circle, EventType.TAG_CHANGE, day, CborMap.EMPTY, MarketPayloads.tagChange(change))
 
     fun itemRetire(circle: CircleId, day: Int, item: ItemId): Envelope =
         build(circle, EventType.ITEM_RETIRE, day, CborMap.EMPTY, MarketPayloads.itemRetire(ItemRetire(item)))

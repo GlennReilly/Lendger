@@ -46,6 +46,7 @@ import circles.app.NoteStatus
 import circles.event.ContributionKind
 import circles.app.PauseResult
 import circles.app.RulesResult
+import circles.app.TagResult
 import circles.app.PauseRole
 import circles.event.LoanStatus
 import circles.event.MAX_LOAN_DAYS
@@ -1751,5 +1752,48 @@ class CircleAppEndToEndTest {
         listOf(alice, bea, carol).forEach { it.app.syncOnce() }
         assertEquals(NameResult.Saved, carol.app.setMyName("dana"))
         listOf(alice, bea, carol).forEach { assertEquals(0, assertNotNull(it.app.syncOnce()).refused) }
+    }
+
+    @Test
+    fun stewardsManageKindsOfItemByVoteAndOwnersPickUpToThreeSealedAndSeenByMembers() = apiTest {
+        val transport = HttpTransport { method, path, body, token ->
+            api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }
+        }
+        val crypto = JvmCrypto()
+        val alice = browser(transport, crypto)
+        alice.app.open(); alice.app.startCircle(PASSPHRASE); alice.app.syncOnce()
+        val link = assertNotNull(alice.app.makeInvite()); alice.app.syncOnce()
+        val bea = browser(transport, crypto)
+        bea.app.open(); bea.app.join(link, PASSPHRASE); bea.app.syncOnce(); alice.app.syncOnce()
+        alice.app.admit(home(alice.app).waiting.single().device); alice.app.syncOnce(); bea.app.syncOnce()
+
+        val garden = alice.app.newTag("  Garden ")
+        assertEquals("Garden", garden.name)
+        assertEquals(TagResult.NotAllowed, bea.app.proposeTag(bea.app.newTag("Camping")))
+        assertEquals(TagResult.Sent(takesEffect = true), alice.app.proposeTag(garden))
+        assertEquals(TagResult.Refused(circles.event.TAG_NAME_TAKEN), alice.app.proposeTag(alice.app.newTag("GARDEN")))
+        val kitchen = alice.app.newTag("Kitchen"); val camping = alice.app.newTag("Camping"); val tools = alice.app.newTag("Tools")
+        listOf(kitchen, camping, tools).forEach { assertEquals(TagResult.Sent(takesEffect = true), alice.app.proposeTag(it)) }
+        alice.app.syncOnce(); bea.app.syncOnce()
+        assertEquals(listOf("Garden", "Kitchen", "Camping", "Tools"), home(bea.app).tags.map { it.name })
+
+        val spade = alice.app.addItem("Spade", ItemClass.EVERYDAY, "shed", tags = listOf(garden.tag, tools.tag, camping.tag, kitchen.tag))
+        assertEquals(ItemResult.TooManyTags(3), spade)
+        assertEquals(ItemResult.UnknownTag, alice.app.addItem("Spade", ItemClass.EVERYDAY, "shed", tags = listOf(circles.event.newTagId(crypto))))
+        val id = (alice.app.addItem("Spade", ItemClass.EVERYDAY, "shed", tags = listOf(garden.tag, tools.tag)) as ItemResult.Saved).item
+        alice.app.syncOnce(); bea.app.syncOnce()
+        assertEquals(listOf("Garden", "Tools"), home(bea.app).items.single { it.item == id }.tags.map { it.name })
+
+        // Retire Tools: the item keeps it, editing other fields keeps it, and it cannot be picked any more.
+        assertEquals(TagResult.Sent(takesEffect = true), alice.app.proposeTag(circles.event.TagChange(tools.tag, circles.event.TagOp.RETIRE, null)))
+        assertIs<ItemResult.Saved>(alice.app.editItem(id, "Spade", ItemClass.EVERYDAY, "shed", tags = listOf(garden.tag)))
+        alice.app.syncOnce(); bea.app.syncOnce()
+        assertEquals(listOf("Garden" to false, "Tools" to true), home(bea.app).items.single { it.item == id }.tags.map { it.name to it.retired })
+        assertEquals(ItemResult.UnknownTag, alice.app.editItem(id, "Spade", ItemClass.EVERYDAY, "shed", tags = listOf(tools.tag)))
+        assertTrue(home(alice.app).tags.single { it.tag == tools.tag }.retired)
+        listOf(alice, bea).forEach { assertEquals(0, assertNotNull(it.app.syncOnce()).refused) }
+        // The tag names are in sealed events only.
+        val dump = server.rows("SELECT public, encrypted FROM events").joinToString { row -> row.joinToString { (it as? ByteArray)?.decodeToString().orEmpty() } }
+        assertFalse("Garden" in dump || "Camping" in dump)
     }
 }

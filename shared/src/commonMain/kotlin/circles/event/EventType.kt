@@ -37,7 +37,9 @@ enum class EventType(val wire: String) {
     PAUSE_LIFT("pause.lift"),
     PAUSE_APPEAL("pause.appeal"),
     /** The owner puts an archived item back on the list (ADR 0075). */
-    ITEM_RESTORE("item.restore");
+    ITEM_RESTORE("item.restore"),
+    /** A steward's vote to add, rename or retire a kind-of-item tag (ADR 0086). */
+    TAG_CHANGE("tag.change");
 
     companion object {
         fun fromWire(text: String): EventType? = entries.firstOrNull { it.wire == text }

@@ -25,6 +25,8 @@ import circles.app.VerifyLink
 import circles.qr.QrCode
 import circles.event.ItemPhoto
 import circles.event.MAX_PHOTOS_PER_ITEM
+import circles.event.MAX_TAGS_PER_ITEM
+import circles.event.MAX_TAG_NAME_CHARS
 import circles.event.MAX_PHOTO_ALT_CHARS
 import circles.app.SkillSummary
 import circles.event.MAX_SKILL_DETAILS_CHARS
@@ -144,6 +146,20 @@ const val FORM_ITEM_EDIT = "item-edit-form"
 const val FIELD_NAME = "name"
 const val FIELD_KIND = "kind"
 const val FIELD_MIN_TIER = "min-tier"
+const val FIELD_TAG = "tag"
+const val FIELD_TAG_NAME = "tag-name"
+const val FORM_TAG_ADD = "tag-add-form"
+const val FORM_TAG_RENAME_PREFIX = "tag-rename-form-"
+const val ACTION_TAG_RETIRE = "tag-retire"
+const val ACTION_TAG_AGREE = "tag-agree"
+const val ATTR_TAG = "data-tag"
+const val ATTR_TAG_OP = "data-tag-op"
+const val ATTR_TAG_NAME = "data-tag-name"
+const val ID_ITEM_SEARCH = "item-search"
+const val ID_ITEM_TAG = "item-tag"
+const val ID_ITEM_COUNT = "item-count"
+const val ATTR_ITEM_TEXT = "data-item-text"
+const val ATTR_ITEM_TAGS = "data-item-tags"
 const val FORM_RULES = "circle-rules-form"
 const val ACTION_RULES_AGREE = "rules-agree"
 const val ATTR_RULES = "data-rules"
@@ -436,8 +452,8 @@ fun FlowContent.shell(state: AppState) {
                 Screen.Skills -> skills(model.home)
                 Screen.AddSkill -> skillForm(null)
                 Screen.EditSkill -> skillForm(model.home.skills.firstOrNull { it.skill == state.editingSkill })
-                Screen.AddItem -> itemForm(null)
-                Screen.EditItem -> itemForm(model.home.items.firstOrNull { it.item == state.editing })
+                Screen.AddItem -> itemForm(model.home, null)
+                Screen.EditItem -> itemForm(model.home, model.home.items.firstOrNull { it.item == state.editing })
                 Screen.Borrow -> borrow(model.home)
                 Screen.ItemHistory -> itemHistoryPage(model.home, state)
                 Screen.BorrowHistory -> borrowHistoryPage(model.home)
@@ -1229,11 +1245,15 @@ private fun FlowContent.items(home: HomeData, state: AppState) {
         archivedItems(home)
         return
     }
+    itemFilters(home, shown.size)
     ul {
         classes = setOf("cards")
         for (item in shown) {
             li {
+                attributes[ATTR_ITEM_TEXT] = (item.name + " " + item.tags.joinToString(" ") { it.name }).lowercase()
+                attributes[ATTR_ITEM_TAGS] = item.tags.joinToString(" ") { it.tag.v }
                 h2 { +item.name }
+                if (item.tags.isNotEmpty()) p { +"Kind of item: ${item.tags.joinToString(", ") { it.name }}" }
                 if (item.photos.isNotEmpty()) {
                     div {
                         classes = setOf("photos")
@@ -1295,6 +1315,43 @@ private fun FlowContent.dateEcho(inputId: String, day: Int?) {
     }
 }
 
+/** A search box and a "Kind of item" menu that narrow the list on this device (ADR 0086); nothing is sent. */
+private fun FlowContent.itemFilters(home: HomeData, total: Int) {
+    if (home.items.size < 2) return
+    label {
+        attributes["for"] = ID_ITEM_SEARCH
+        +"Search: "
+    }
+    input(type = InputType.text) {
+        id = ID_ITEM_SEARCH
+        attributes["autocomplete"] = "off"
+    }
+    val live = home.tags.filter { !it.retired }
+    if (live.isNotEmpty()) {
+        label {
+            attributes["for"] = ID_ITEM_TAG
+            +"Kind of item: "
+        }
+        select {
+            id = ID_ITEM_TAG
+            option {
+                value = ""
+                selected = true
+                +"All kinds"
+            }
+            for (tag in live) option {
+                value = tag.tag.v
+                +tag.name
+            }
+        }
+    }
+    p {
+        id = ID_ITEM_COUNT
+        role = "status"
+        +(if (total == 1) "1 item" else "$total items")
+    }
+}
+
 /** Someone else's item: the button to ask for it, or why not yet and how to unlock (shared by the Items page and a member's page). */
 private fun FlowContent.itemAccess(item: ItemSummary) {
     val access = item.access
@@ -1317,8 +1374,32 @@ private fun FlowContent.itemAccess(item: ItemSummary) {
     }
 }
 
+/** The circle's kinds of item as tick boxes, at most [MAX_TAGS_PER_ITEM]; retired kinds the item already has are listed as plain text (ADR 0086). */
+private fun FlowContent.tagPicker(home: HomeData, existing: ItemSummary?) {
+    val live = home.tags.filter { !it.retired }
+    val kept = existing?.tags.orEmpty().filter { it.retired }
+    fieldSet {
+        legend { +"Kind of item" }
+        if (live.isEmpty()) p { +"The circle has no kinds of item yet. Stewards can add them on the Stewards page." }
+        else p { +"Choose up to $MAX_TAGS_PER_ITEM kinds so members can find this item." }
+        for (tag in live) div {
+            classes = setOf("check-row")
+            input(type = InputType.checkBox, name = FIELD_TAG) {
+                id = FIELD_TAG + "-" + tag.tag.v
+                value = tag.tag.v
+                checked = existing?.tags?.any { it.tag == tag.tag } == true
+            }
+            label {
+                attributes["for"] = FIELD_TAG + "-" + tag.tag.v
+                +tag.name
+            }
+        }
+        if (kept.isNotEmpty()) p { +"No longer offered, kept on this item: ${kept.joinToString(", ") { it.name }}." }
+    }
+}
+
 /** Adding an item ([existing] null) or changing one: the same fields, on a page of their own. */
-private fun FlowContent.itemForm(existing: ItemSummary?) {
+private fun FlowContent.itemForm(home: HomeData, existing: ItemSummary?) {
     h1 { +(if (existing == null) Screen.AddItem.title else Screen.EditItem.title) }
     form {
         id = if (existing == null) FORM_ITEM_ADD else FORM_ITEM_EDIT
@@ -1367,6 +1448,7 @@ private fun FlowContent.itemForm(existing: ItemSummary?) {
                 +TierText.orAbove(tier)
             }
         }
+        tagPicker(home, existing)
         label {
             attributes["for"] = FIELD_DETAILS
             +"Details: "
@@ -2150,6 +2232,82 @@ private fun policyProposalText(proposal: ProposalSummary): String = when (propos
 }
 
 /** Who looks after the circle, what is waiting for their agreement, and the rules they follow (ADR 0027). */
+private fun tagProposalText(p: circles.app.TagProposalSummary): String = when (p.change.op) {
+    circles.event.TagOp.ADD -> "Add the kind \"${p.change.name}\""
+    circles.event.TagOp.RENAME -> "Rename the kind \"${p.tagName.orEmpty()}\" to \"${p.change.name}\""
+    circles.event.TagOp.RETIRE -> "Retire the kind \"${p.tagName.orEmpty()}\""
+}
+
+/** The circle's kinds of item and the votes to change them (ADR 0086). */
+private fun FlowContent.tagsSection(home: HomeData) {
+    section {
+        h2 { +"Kinds of item" }
+        p { +"Owners choose up to $MAX_TAGS_PER_ITEM kinds for each item, and members can narrow the Items list by kind. Changing the list needs the same stewards to agree as the other circle rules." }
+        val live = home.tags.filter { !it.retired }
+        if (live.isEmpty()) p { +"The circle has no kinds of item yet." }
+        else ul {
+            for (tag in live) li {
+                +tag.name
+                if (home.isSteward) details {
+                    summary { +"Rename or retire" }
+                    form {
+                        id = FORM_TAG_RENAME_PREFIX + tag.tag.v
+                        attributes[ATTR_TAG] = tag.tag.v
+                        label {
+                            attributes["for"] = FIELD_TAG_NAME + "-" + tag.tag.v
+                            +"New name for this kind: "
+                        }
+                        input(type = InputType.text, name = FIELD_TAG_NAME) {
+                            id = FIELD_TAG_NAME + "-" + tag.tag.v
+                            required = true
+                            value = tag.name
+                            attributes["maxlength"] = MAX_TAG_NAME_CHARS.toString()
+                            attributes[ATTR_MIN] = "1"
+                            attributes["autocomplete"] = "off"
+                        }
+                        formSubmit("Propose this name", ready = true)
+                    }
+                    button(type = ButtonType.button) {
+                        attributes[ATTR_ACTION] = ACTION_TAG_RETIRE
+                        attributes[ATTR_TAG] = tag.tag.v
+                        +"Propose retiring this kind"
+                    }
+                    p { +"A retired kind is no longer offered. Items that already have it keep it." }
+                }
+            }
+        }
+        val retired = home.tags.filter { it.retired }
+        if (retired.isNotEmpty()) p { +"Retired kinds: ${retired.joinToString(", ") { it.name }}." }
+        for (proposal in home.tagProposals) {
+            p { +"${tagProposalText(proposal)}. ${proposal.agreeing} of ${proposal.needed} stewards agree." }
+            if (proposal.canAgree) button(type = ButtonType.button) {
+                attributes[ATTR_ACTION] = ACTION_TAG_AGREE
+                attributes[ATTR_TAG] = proposal.change.tag.v
+                attributes[ATTR_TAG_OP] = proposal.change.op.name
+                proposal.change.name?.let { attributes[ATTR_TAG_NAME] = it }
+                +"Agree to this change"
+            }
+        }
+        if (home.isSteward) {
+            form {
+                id = FORM_TAG_ADD
+                label {
+                    attributes["for"] = FIELD_TAG_NAME
+                    +"New kind: "
+                }
+                input(type = InputType.text, name = FIELD_TAG_NAME) {
+                    id = FIELD_TAG_NAME
+                    required = true
+                    attributes["maxlength"] = MAX_TAG_NAME_CHARS.toString()
+                    attributes[ATTR_MIN] = "1"
+                    attributes["autocomplete"] = "off"
+                }
+                formSubmit("Propose adding this kind")
+            }
+        }
+    }
+}
+
 private fun FlowContent.stewards(home: HomeData) {
     h1 { +Screen.Stewards.title }
     p { +"Stewards approve new members' access, decide disputes, and decide who the stewards are." }
@@ -2336,6 +2494,7 @@ private fun FlowContent.stewards(home: HomeData) {
             }
         }
     }
+    tagsSection(home)
     section {
         h2 { +"Rules for stewards" }
         ul {

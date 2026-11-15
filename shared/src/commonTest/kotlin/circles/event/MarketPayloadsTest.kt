@@ -172,4 +172,35 @@ class MarketPayloadsTest {
         assertIs<Parsed.Invalid>(MarketPayloads.parseConfigUpdate(CborMap(six + ("everydayWaiting" to CborInt(2)))))
         assertIs<Parsed.Invalid>(MarketPayloads.parseConfigUpdate(CborMap(six + ("essentialLevel" to CborInt(1)))))
     }
+
+    // ---- kinds of item (ADR 0086) ----
+
+    @Test
+    fun anItemUpsertWithKindsRoundTripsAndOldOnesHaveNone() {
+        val a = TagId("a1".repeat(16)); val b = TagId("b2".repeat(16))
+        val upsert = ItemUpsert(item, "Ladder", ItemClass.EVERYDAY, null, keyId, listOf(wrap), emptyList(), listOf(a, b))
+        assertEquals(upsert, ok(MarketPayloads.parseItemUpsert(MarketPayloads.itemUpsert(upsert))))
+        assertEquals(emptyList(), ok(MarketPayloads.parseItemUpsert(MarketPayloads.itemUpsert(upsert.copy(tags = emptyList())))).tags)
+        assertEquals(false, "tags" in MarketPayloads.itemUpsert(upsert.copy(tags = emptyList())).entries.keys, "no key at all without kinds, so old readers are unaffected")
+        val base = MarketPayloads.itemUpsert(upsert).entries
+        fun withTags(vararg values: kotlin.Any) = CborMap(base + ("tags" to CborArray(values.map { CborText(it as String) })))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseItemUpsert(withTags(a.v, a.v)), "distinct only")
+        assertIs<Parsed.Invalid>(MarketPayloads.parseItemUpsert(withTags(a.v, b.v, "c3".repeat(16), "d4".repeat(16))), "at most three")
+        assertIs<Parsed.Invalid>(MarketPayloads.parseItemUpsert(withTags("not an id")))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseItemUpsert(CborMap(base + ("tags" to CborText(a.v)))))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseItemUpsert(CborMap(base + ("tags" to CborArray(emptyList())))), "an empty list is written as no key")
+    }
+
+    @Test
+    fun aTagChangeRoundTripsAndTheReaderIsStrict() {
+        val id = TagId("a1".repeat(16))
+        for (change in listOf(TagChange(id, TagOp.ADD, "Garden"), TagChange(id, TagOp.RENAME, "Gardening"), TagChange(id, TagOp.RETIRE, null))) {
+            assertEquals(change, ok(MarketPayloads.parseTagChange(MarketPayloads.tagChange(change))))
+        }
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagChange(CborMap.of("tag" to CborText(id.v), "op" to CborText("ADD"))), "an addition needs a name")
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagChange(CborMap.of("tag" to CborText(id.v), "op" to CborText("RETIRE"), "name" to CborText("x"))), "a retirement carries no name")
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagChange(CborMap.of("tag" to CborText(id.v), "op" to CborText("DELETE"))))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagChange(CborMap.of("tag" to CborText("short"), "op" to CborText("RETIRE"))))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagChange(CborMap.of("tag" to CborText(id.v), "op" to CborText("RETIRE"), "extra" to CborInt(1))))
+    }
 }
