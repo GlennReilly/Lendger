@@ -482,6 +482,27 @@ try {
   await until(alice, has(alice, 'Category: Garden'), 'item shows its category'); ok('Categories: a steward adds categories, a duplicate is refused in words, and the owner picks one that shows under the item');
   await checkAccessibility(alice, 'items with a category');
   await alice.evaluate('location.hash = "#/stewards"'); await until(alice, has(alice, 'Categories'), 'back to stewards');
+  // Members suggest categories (ADR 0087): bea suggests, alice declines with a reason, bea reads it; a second suggestion is approved with the same id.
+  await syncUntil(bea, 'location.hash = "#/items"; ' + has(bea, 'Suggest a new category'), 'bea sees the suggest link');
+  await bea.evaluate('document.querySelector("a[href=\'#/items/suggest-category\']").click()'); await until(bea, 'document.getElementById("suggest-category-form") !== null', 'suggest page');
+  if (await bea.evaluate('document.getElementById("submit").hidden !== true')) throw new Error('the suggest button should wait for a name');
+  await checkAccessibility(bea, 'suggest a category');
+  await submit(bea, 'suggest-category-form', { 'suggest-name': 'Toys', 'suggest-note': 'for the toy library' });
+  await until(bea, has(bea, 'Your suggestion was sent to the stewards.') + ' && ' + has(bea, 'is waiting for the stewards.'), 'suggestion sent');
+  await syncUntil(alice, 'location.hash = "#/home"; ' + has(alice, '1 category suggested by a member is waiting for an answer'), 'alice sees the home line');
+  await alice.evaluate('location.hash = "#/stewards"'); await until(alice, has(alice, 'Suggested by members') + ' && ' + has(alice, 'Their note: for the toy library'), 'alice sees the suggestion');
+  await alice.evaluate('document.querySelectorAll("details").forEach(d => { if (d.querySelector("form[id^=suggestion-]")) d.open = true })');
+  await checkAccessibility(alice, 'stewards with a suggested category');
+  await submit(alice, await alice.evaluate('document.querySelector("form[id^=suggestion-decline-form-]").id'), { 'decline-reason': 'Games already covers toys' });
+  await until(alice, has(alice, 'The suggestion was declined.'), 'declined');
+  await syncUntil(bea, 'location.hash = "#/items/suggest-category"; ' + has(bea, 'was declined. Reason: Games already covers toys'), 'bea reads the reason');
+  await checkAccessibility(bea, 'suggest a category, after a decline');
+  await submit(bea, 'suggest-category-form', { 'suggest-name': 'Camping', 'suggest-note': '' });
+  await until(bea, has(bea, 'Your suggestion was sent to the stewards.'), 'second suggestion sent');
+  await syncUntil(alice, 'location.hash = "#/stewards"; document.querySelector("[data-action=suggestion-agree]") !== null', 'alice sees the second suggestion');
+  await click(alice, 'suggestion-agree'); await until(alice, has(alice, 'The change to the categories applies from today.'), 'approved by the steward vote');
+  await syncUntil(bea, 'location.hash = "#/items/suggest-category"; ' + has(bea, '(sent on') + ' && ' + has(bea, 'was added.'), 'bea sees it added');
+  ok('Suggested categories: a member suggests, a steward declines with a reason the member reads, and a second suggestion is approved by the steward vote and listed as added');
   await click(alice, 'steward-add'); await until(alice, has(alice, 'The steward change takes effect now.'), 'bea made steward'); await until(alice, has(alice, 'Steward since') , 'two stewards listed');
   ok('alice made bea a steward (a lone steward needs no one else to agree)');
   await syncUntil(bea, 'location.hash = "#/stewards"; ' + has(bea, 'Can vote from'), 'bea sees she is cooling off'); ok('bea, the new steward, sees when she can vote from');

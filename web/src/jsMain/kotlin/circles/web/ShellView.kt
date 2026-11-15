@@ -152,6 +152,13 @@ const val FORM_TAG_ADD = "tag-add-form"
 const val FORM_TAG_RENAME_PREFIX = "tag-rename-form-"
 const val ACTION_TAG_RETIRE = "tag-retire"
 const val ACTION_TAG_AGREE = "tag-agree"
+const val FORM_SUGGEST_CATEGORY = "suggest-category-form"
+const val FIELD_SUGGEST_NAME = "suggest-name"
+const val FIELD_SUGGEST_NOTE = "suggest-note"
+const val FIELD_DECLINE_REASON = "decline-reason"
+const val FORM_SUGGESTION_RENAME_PREFIX = "suggestion-rename-form-"
+const val FORM_SUGGESTION_DECLINE_PREFIX = "suggestion-decline-form-"
+const val ACTION_SUGGESTION_AGREE = "suggestion-agree"
 const val ATTR_TAG = "data-tag"
 const val ATTR_TAG_OP = "data-tag-op"
 const val ATTR_TAG_NAME = "data-tag-name"
@@ -449,6 +456,7 @@ fun FlowContent.shell(state: AppState) {
                 Screen.Person -> personPage(model.home, state)
                 Screen.CheckDevice -> checkDevicePage(state)
                 Screen.ItemTag -> itemTagPage(model.home, state)
+                Screen.SuggestCategory -> suggestCategoryPage(model.home)
                 Screen.Skills -> skills(model.home)
                 Screen.AddSkill -> skillForm(null)
                 Screen.EditSkill -> skillForm(model.home.skills.firstOrNull { it.skill == state.editingSkill })
@@ -710,6 +718,10 @@ private fun FlowContent.home(home: HomeData, state: AppState) {
         val due = dueCount(home)
         if (due > 0) {
             li { a(href = Screen.Borrow.fragment) { +(if (due == 1) "1 loan is due back today or past its day" else "$due loans are due back today or past their day") } }
+        }
+        val suggested = if (home.isSteward) home.suggestions.count { it.status == circles.event.SuggestionStatus.WAITING } else 0
+        if (suggested > 0) {
+            li { a(href = Screen.Stewards.fragment) { +(if (suggested == 1) "1 category suggested by a member is waiting for an answer" else "$suggested categories suggested by members are waiting for an answer") } }
         }
         if (home.isSteward && home.waiting.isNotEmpty()) {
             li {
@@ -1229,6 +1241,7 @@ private fun FlowContent.items(home: HomeData, state: AppState) {
             +"Add an item"
         }
     }
+    suggestCategoryLink(home)
     val shown = state.focusItem?.let { focus -> home.items.filter { it.item == focus } } ?: home.items
     if (state.focusItem != null) {
         p {
@@ -1374,7 +1387,127 @@ private fun FlowContent.itemAccess(item: ItemSummary) {
     }
 }
 
-/** The circle's kinds of item as tick boxes, at most [MAX_TAGS_PER_ITEM]; retired kinds the item already has are listed as plain text (ADR 0086). */
+/** The link to the suggestion page; left off for someone at this month's limit, who is told when they can suggest again on that page (ADR 0087). */
+private fun FlowContent.suggestCategoryLink(home: HomeData) {
+    if (!home.canRead || !home.canSuggest) return
+    p {
+        a(href = Screen.SuggestCategory.fragment) { +"Suggest a new category" }
+    }
+}
+
+/** What the suggester reads about one of their own suggestions, in a full sentence (ADR 0087, 0077). */
+private fun suggestionSentence(s: circles.app.SuggestionSummary): String {
+    val sent = "sent on ${DateText.show(s.sentDay)}"
+    return when (s.status) {
+        circles.event.SuggestionStatus.WAITING -> "Your suggestion \"${s.name}\" ($sent) is waiting for the stewards."
+        circles.event.SuggestionStatus.ADDED -> "Your suggestion \"${s.name}\" ($sent) was added" + (if (s.addedAs != null && s.addedAs != s.name) " as \"${s.addedAs}\"." else ".")
+        circles.event.SuggestionStatus.DECLINED -> "Your suggestion \"${s.name}\" ($sent) was declined. Reason: ${s.declineReason.orEmpty()}"
+        circles.event.SuggestionStatus.LAPSED -> "Your suggestion \"${s.name}\" ($sent) lapsed: no steward answered within ${circles.event.SUGGESTION_LAPSE_DAYS} days."
+    }
+}
+
+/** One topic: suggest a category, and see how your earlier suggestions fared (ADR 0087). */
+private fun FlowContent.suggestCategoryPage(home: HomeData) {
+    h1 { +Screen.SuggestCategory.title }
+    p { +"A suggestion goes to the stewards. If enough of them agree, the category is added to the list that owners choose from." }
+    if (!home.canSuggest) {
+        p {
+            role = "status"
+            +"You have sent ${circles.event.MAX_SUGGESTIONS_PER_WINDOW} suggestions in the last ${circles.event.SUGGESTION_WINDOW_DAYS} days. You can suggest again from ${home.suggestAgainDay?.let { DateText.show(it) }.orEmpty()}."
+        }
+    } else {
+        form {
+            id = FORM_SUGGEST_CATEGORY
+            label {
+                attributes["for"] = FIELD_SUGGEST_NAME
+                +"Category name: "
+            }
+            input(type = InputType.text, name = FIELD_SUGGEST_NAME) {
+                id = FIELD_SUGGEST_NAME
+                required = true
+                attributes["maxlength"] = MAX_TAG_NAME_CHARS.toString()
+                attributes[ATTR_MIN] = "1"
+                attributes["autocomplete"] = "off"
+            }
+            label {
+                attributes["for"] = FIELD_SUGGEST_NOTE
+                +"Note for the stewards (optional): "
+            }
+            input(type = InputType.text, name = FIELD_SUGGEST_NOTE) {
+                id = FIELD_SUGGEST_NOTE
+                attributes["maxlength"] = circles.event.MAX_SUGGESTION_NOTE_CHARS.toString()
+                attributes["autocomplete"] = "off"
+            }
+            formSubmit("Send suggestion")
+        }
+    }
+    val mine = home.suggestions.filter { it.mine }
+    if (mine.isNotEmpty()) section {
+        h2 { +"Your suggestions" }
+        ul { for (s in mine.asReversed()) li { +suggestionSentence(s) } }
+    }
+}
+
+/** Suggestions waiting for a steward: the suggester, the note and the date, and the three answers (ADR 0087). */
+private fun FlowContent.suggestionsToAnswer(home: HomeData) {
+    val waiting = home.suggestions.filter { it.status == circles.event.SuggestionStatus.WAITING }
+    if (waiting.isEmpty()) return
+    h3 { +"Suggested by members" }
+    ul {
+        for (s in waiting) li {
+            personName(home, s.suggester)
+            +" suggested \"${s.name}\" on ${DateText.show(s.sentDay)}."
+            if (s.note.isNotEmpty()) p { +"Their note: ${s.note}" }
+            button(type = ButtonType.button) {
+                attributes[ATTR_ACTION] = ACTION_SUGGESTION_AGREE
+                attributes[ATTR_TAG] = s.tag.v
+                attributes[ATTR_TAG_NAME] = s.name
+                +"Agree to add this category"
+            }
+            details {
+                summary { +"Add with a different name" }
+                form {
+                    id = FORM_SUGGESTION_RENAME_PREFIX + s.tag.v
+                    attributes[ATTR_TAG] = s.tag.v
+                    label {
+                        attributes["for"] = FIELD_TAG_NAME + "-s-" + s.tag.v
+                        +"Name to add: "
+                    }
+                    input(type = InputType.text, name = FIELD_TAG_NAME) {
+                        id = FIELD_TAG_NAME + "-s-" + s.tag.v
+                        required = true
+                        value = s.name
+                        attributes["maxlength"] = MAX_TAG_NAME_CHARS.toString()
+                        attributes[ATTR_MIN] = "1"
+                        attributes["autocomplete"] = "off"
+                    }
+                    formSubmit("Propose adding this name", ready = true)
+                }
+            }
+            details {
+                summary { +"Decline" }
+                form {
+                    id = FORM_SUGGESTION_DECLINE_PREFIX + s.tag.v
+                    attributes[ATTR_TAG] = s.tag.v
+                    label {
+                        attributes["for"] = FIELD_DECLINE_REASON + "-" + s.tag.v
+                        +"Reason for declining: "
+                    }
+                    input(type = InputType.text, name = FIELD_DECLINE_REASON) {
+                        id = FIELD_DECLINE_REASON + "-" + s.tag.v
+                        required = true
+                        attributes["maxlength"] = circles.event.MAX_DECLINE_REASON_CHARS.toString()
+                        attributes[ATTR_MIN] = "1"
+                        attributes["autocomplete"] = "off"
+                    }
+                    formSubmit("Decline this suggestion")
+                }
+            }
+        }
+    }
+}
+
+/** The circle's categories as tick boxes, at most [MAX_TAGS_PER_ITEM]; retired kinds the item already has are listed as plain text (ADR 0086). */
 private fun FlowContent.tagPicker(home: HomeData, existing: ItemSummary?) {
     val live = home.tags.filter { !it.retired }
     val kept = existing?.tags.orEmpty().filter { it.retired }
@@ -1395,6 +1528,7 @@ private fun FlowContent.tagPicker(home: HomeData, existing: ItemSummary?) {
             }
         }
         if (kept.isNotEmpty()) p { +"No longer offered, kept on this item: ${kept.joinToString(", ") { it.name }}." }
+        suggestCategoryLink(home)
     }
 }
 
@@ -2278,6 +2412,7 @@ private fun FlowContent.tagsSection(home: HomeData) {
         }
         val retired = home.tags.filter { it.retired }
         if (retired.isNotEmpty()) p { +"Retired categories: ${retired.joinToString(", ") { it.name }}." }
+        if (home.isSteward) suggestionsToAnswer(home)
         for (proposal in home.tagProposals) {
             p { +"${tagProposalText(proposal)}. ${proposal.agreeing} of ${proposal.needed} stewards agree." }
             if (proposal.canAgree) button(type = ButtonType.button) {

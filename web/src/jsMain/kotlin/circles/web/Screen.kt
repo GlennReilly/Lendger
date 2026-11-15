@@ -21,6 +21,7 @@ enum class Screen(val path: String, val title: String) {
     Person("members/person", "Member"),
     ItemTag("items/tag", "Item tag"),
     ItemHistory("items/history", "Loan history"),
+    SuggestCategory("items/suggest-category", "Suggest a new category"),
     BorrowHistory("borrow/history", "My borrowing history"),
     AddSkill("skills/add", "Offer a skill"),
     EditSkill("skills/edit", "Change a skill offer"),
@@ -47,7 +48,7 @@ enum class Screen(val path: String, val title: String) {
         val beforeSignIn: Set<Screen> = signedOut + SignIn
 
         /** Pages reached from another page, not from the navigation bar. */
-        val subPages: Set<Screen> = setOf(AddItem, EditItem, RequestLoan, RecoveryCode, RecoveryShares, Pauses, AddSkill, EditSkill, Verify, CheckIdentity, CheckDevice, ItemTag, ItemHistory, BorrowHistory, Person, YourName)
+        val subPages: Set<Screen> = setOf(AddItem, EditItem, RequestLoan, RecoveryCode, RecoveryShares, Pauses, AddSkill, EditSkill, Verify, CheckIdentity, CheckDevice, ItemTag, ItemHistory, SuggestCategory, BorrowHistory, Person, YourName)
 
         /** The pages in the account menu in the header, which holds the member's own pages (ADR 0083). */
         val accountMenu: List<Screen> = listOf(Standing, Settings)

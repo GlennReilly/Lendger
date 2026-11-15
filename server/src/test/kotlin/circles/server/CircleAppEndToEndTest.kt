@@ -1796,4 +1796,68 @@ class CircleAppEndToEndTest {
         val dump = server.rows("SELECT public, encrypted FROM events").joinToString { row -> row.joinToString { (it as? ByteArray)?.decodeToString().orEmpty() } }
         assertFalse("Garden" in dump || "Camping" in dump)
     }
+
+    @Test
+    fun membersSuggestCategoriesAStewardDeclinesWithAReasonOrApprovesAndSuggestionsLapseAndAreLimited() = apiTest {
+        val transport = HttpTransport { method, path, body, token ->
+            api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }
+        }
+        val crypto = JvmCrypto()
+        var day = TODAY
+        val alice = browser(transport, crypto, today = { day })
+        alice.app.open(); alice.app.startCircle(PASSPHRASE); alice.app.syncOnce()
+        val link = assertNotNull(alice.app.makeInvite()); alice.app.syncOnce()
+        val bea = browser(transport, crypto, today = { day })
+        bea.app.open(); bea.app.join(link, PASSPHRASE); bea.app.syncOnce(); alice.app.syncOnce()
+        alice.app.admit(home(alice.app).waiting.single().device); alice.app.syncOnce(); bea.app.syncOnce()
+        suspend fun sync() { listOf(alice, bea, alice, bea).forEach { it.app.syncOnce() } }
+
+        assertEquals(PauseResult.Sent, bea.app.suggestTag("  Toys ", "for the toy library"))
+        val before = home(bea.app)
+        assertEquals(listOf("Toys"), before.suggestions.map { it.name }, "the suggester sees it at once")
+        assertEquals(PauseResult.Refused(circles.event.TAG_NAME_TAKEN), run {
+            alice.app.proposeTag(alice.app.newTag("Garden")); sync()
+            bea.app.suggestTag("garden", "")
+        })
+        sync()
+        val toys = home(alice.app).suggestions.single()
+        assertEquals(Triple("Toys", "for the toy library", circles.event.SuggestionStatus.WAITING), Triple(toys.name, toys.note, toys.status))
+        // Only a steward declines, and a reason is required.
+        assertEquals(PauseResult.NotAllowed, bea.app.declineSuggestion(toys.tag, "No"))
+        assertEquals(PauseResult.Refused("Give a reason for declining a suggested category."), alice.app.declineSuggestion(toys.tag, "  "))
+        assertEquals(PauseResult.Sent, alice.app.declineSuggestion(toys.tag, "Games already covers toys"))
+        sync()
+        val declined = home(bea.app).suggestions.single()
+        assertEquals(Pair(circles.event.SuggestionStatus.DECLINED, "Games already covers toys"), declined.status to declined.declineReason)
+
+        // Another suggestion is approved by the steward's ADD vote with the same id, spelled differently.
+        assertEquals(PauseResult.Sent, bea.app.suggestTag("Camping", ""))
+        sync()
+        val camping = home(alice.app).suggestions.single { it.name == "Camping" }
+        assertEquals(TagResult.Sent(takesEffect = true), alice.app.proposeTag(circles.event.TagChange(camping.tag, circles.event.TagOp.ADD, "Camping gear")))
+        sync()
+        val added = home(bea.app).suggestions.single { it.name == "Camping" }
+        assertEquals(Pair(circles.event.SuggestionStatus.ADDED, "Camping gear"), added.status to added.addedAs)
+        assertTrue(home(bea.app).tags.any { it.name == "Camping gear" })
+
+        // The limit: three in 30 days (Toys, Garden was refused and not counted, Camping), a third and then a fourth.
+        assertEquals(PauseResult.Sent, bea.app.suggestTag("Tools", ""))
+        assertTrue(home(bea.app).canSuggest.not())
+        val again = assertNotNull(home(bea.app).suggestAgainDay)
+        assertEquals(day + circles.event.SUGGESTION_WINDOW_DAYS, again)
+        val refused = assertIs<PauseResult.Refused>(bea.app.suggestTag("Kitchen", ""))
+        assertTrue(circles.app.ReasonDates.hasToken(refused.reason))
+        // Nobody answers Tools: after 30 days it lapses, and the suggester may suggest again.
+        sync()
+        day += circles.event.SUGGESTION_LAPSE_DAYS; server.clock.advanceSeconds(circles.event.SUGGESTION_LAPSE_DAYS.toLong() * 24 * 60 * 60)
+        sync()
+        assertEquals(circles.event.SuggestionStatus.LAPSED, home(bea.app).suggestions.single { it.name == "Tools" }.status)
+        assertTrue(home(bea.app).canSuggest)
+        assertEquals(PauseResult.Sent, bea.app.suggestTag("Kitchen", ""))
+        sync()
+        listOf(alice, bea).forEach { assertEquals(0, assertNotNull(it.app.syncOnce()).refused) }
+        // Names, notes and reasons are in sealed events only.
+        val dump = server.rows("SELECT public, encrypted FROM events").joinToString { row -> row.joinToString { (it as? ByteArray)?.decodeToString().orEmpty() } }
+        assertFalse("Toys" in dump || "Camping" in dump || "toy library" in dump || "Games already" in dump)
+    }
 }

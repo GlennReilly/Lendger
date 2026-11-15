@@ -520,6 +520,54 @@ class ShellViewTest {
         assertTrue("""$ATTR_ACTION="$ACTION_TAG_AGREE"""" in html)
     }
 
+    private fun suggestion(status: circles.event.SuggestionStatus, mine: Boolean = true, name: String = "Toys", reason: String? = null, addedAs: String? = null) =
+        circles.app.SuggestionSummary(circles.event.TagId("7".repeat(32)), bea, name, "for the toy library", 100, status, reason, addedAs, mine)
+
+    @Test fun theSuggestLinkAppearsOnTheItemsPageAndTheItemFormUntilTheLimitIsReached() {
+        val link = """href="#/items/suggest-category""""
+        val has = ladder.copy(tags = listOf(garden))
+        assertTrue(link in items(home(items = listOf(has)).copy(tags = listOf(garden))))
+        assertTrue("Suggest a new category" in render(open(home(items = listOf(has)).copy(tags = listOf(garden))).copy(screen = Screen.EditItem, editing = has.item)))
+        val atLimit = home(items = listOf(has)).copy(tags = listOf(garden), canSuggest = false, suggestAgainDay = 130)
+        assertFalse(link in items(atLimit), "hidden when the member is at the limit")
+        assertFalse(link in items(home(canRead = false)))
+    }
+
+    @Test fun theSuggestPageHasOneFormAndTellsTheSuggesterHowEachSuggestionFared() {
+        val sentences = listOf(
+            suggestion(circles.event.SuggestionStatus.WAITING) to "is waiting for the stewards.",
+            suggestion(circles.event.SuggestionStatus.ADDED, addedAs = "Toys and games") to "was added as \"Toys and games\".",
+            suggestion(circles.event.SuggestionStatus.DECLINED, reason = "Games covers toys") to "was declined. Reason: Games covers toys",
+            suggestion(circles.event.SuggestionStatus.LAPSED) to "lapsed: no steward answered within 30 days.",
+        )
+        val html = render(open(home().copy(suggestions = sentences.map { it.first })).copy(screen = Screen.SuggestCategory))
+        assertTrue("""id="$FORM_SUGGEST_CATEGORY"""" in html && "Category name: " in html && "Note for the stewards (optional): " in html)
+        assertTrue("""$ATTR_MIN="1"""" in html && """id="$SUBMIT_ID"""" in html && """hidden="hidden"""" in html, "the button waits for a name")
+        val plain = html.replace("&quot;", "\"")
+        for ((_, text) in sentences) assertTrue(text in plain, text)
+        assertTrue("Your suggestion \"Toys\" (sent on" in plain)
+        assertFalse(Screen.SuggestCategory in Screen.navigation, "it is a sub page")
+        val limited = render(open(home().copy(canSuggest = false, suggestAgainDay = 130)).copy(screen = Screen.SuggestCategory))
+        assertFalse(FORM_SUGGEST_CATEGORY in limited)
+        assertTrue("You have sent 3 suggestions in the last 30 days. You can suggest again from " in limited)
+    }
+
+    @Test fun stewardsSeeWaitingSuggestionsWithTheThreeAnswersAndAHomeLine() {
+        val waiting = suggestion(circles.event.SuggestionStatus.WAITING, mine = false)
+        val declined = suggestion(circles.event.SuggestionStatus.DECLINED, mine = false, name = "Old", reason = "no").copy(tag = circles.event.TagId("8".repeat(32)))
+        val steward = home().copy(suggestions = listOf(waiting, declined))
+        val html = render(open(steward).copy(screen = Screen.Stewards))
+        assertTrue("Suggested by members" in html && "suggested &quot;Toys&quot; on" in html && "Their note: for the toy library" in html)
+        assertTrue("""$ATTR_ACTION="$ACTION_SUGGESTION_AGREE"""" in html && "Agree to add this category" in html)
+        assertTrue("Add with a different name" in html && "Decline" in html && "Reason for declining: " in html)
+        assertTrue("""id="$FORM_SUGGESTION_DECLINE_PREFIX${waiting.tag.v}"""" in html && """id="$FORM_SUGGESTION_RENAME_PREFIX${waiting.tag.v}"""" in html)
+        assertFalse("suggested &quot;Old&quot;" in html, "answered suggestions are not listed")
+        assertTrue("1 category suggested by a member is waiting for an answer" in render(open(steward)))
+        val member = home(steward = false).copy(suggestions = listOf(suggestion(circles.event.SuggestionStatus.WAITING)))
+        assertFalse("Suggested by members" in render(open(member).copy(screen = Screen.Stewards)))
+        assertFalse("waiting for an answer" in render(open(member)).substringAfter("category suggested"), "no steward line for members")
+    }
+
     @Test fun aMemberWhoIsNotAStewardCannotProposeKinds() {
         val html = render(open(home(steward = false).copy(tags = listOf(garden))).copy(screen = Screen.Stewards))
         assertTrue("Garden" in html)

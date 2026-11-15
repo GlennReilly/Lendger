@@ -121,6 +121,12 @@ class EventAuthor(
     }
 
     /** A steward's vote for a change to the circle's kinds of item (ADR 0086); the same call agrees to a proposal already made. */
+    fun tagSuggest(circle: CircleId, day: Int, suggestion: TagSuggest): Envelope =
+        build(circle, EventType.TAG_SUGGEST, day, CborMap.EMPTY, MarketPayloads.tagSuggest(suggestion))
+
+    fun tagDecline(circle: CircleId, day: Int, decline: TagDecline): Envelope =
+        build(circle, EventType.TAG_DECLINE, day, CborMap.EMPTY, MarketPayloads.tagDecline(decline))
+
     fun tagChange(circle: CircleId, day: Int, change: TagChange): Envelope =
         build(circle, EventType.TAG_CHANGE, day, CborMap.EMPTY, MarketPayloads.tagChange(change))
 

@@ -442,6 +442,17 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
                 if (member != null) reportName(circleApp.confirmName(member), "Identity confirmed. Others now see that you checked this member's identity in person.")
                 return@busyLaunch
             }
+            if (form.id.startsWith(FORM_SUGGESTION_RENAME_PREFIX)) {
+                form.getAttribute(ATTR_TAG)?.let { tag -> reportTag(circleApp.proposeTag(circles.event.TagChange(circles.event.TagId(tag), circles.event.TagOp.ADD, circleApp.tidyTagName(field(FIELD_TAG_NAME))))) }
+                return@busyLaunch
+            }
+            if (form.id.startsWith(FORM_SUGGESTION_DECLINE_PREFIX)) {
+                form.getAttribute(ATTR_TAG)?.let { tag ->
+                    val result = circleApp.declineSuggestion(circles.event.TagId(tag), field(FIELD_DECLINE_REASON))
+                    reportSuggestion(result, "The suggestion was declined. The member who sent it can read your reason.", "Only a steward can decline a suggested category.")
+                }
+                return@busyLaunch
+            }
             if (form.id.startsWith(FORM_TAG_RENAME_PREFIX)) {
                 form.getAttribute(ATTR_TAG)?.let { tag -> reportTag(circleApp.proposeTag(circles.event.TagChange(circles.event.TagId(tag), circles.event.TagOp.RENAME, circleApp.tidyTagName(field(FIELD_TAG_NAME))))) }
                 return@busyLaunch
@@ -490,6 +501,11 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
                 }
                 FORM_ITEM_ADD -> reportItem(circleApp.addItem(field(FIELD_NAME), kind(field(FIELD_KIND)), field(FIELD_DETAILS), tierOrNull(field(FIELD_MIN_TIER)), pickedTags(form)))
                 FORM_ITEM_EDIT -> state.editing?.let { reportItem(circleApp.editItem(it, field(FIELD_NAME), kind(field(FIELD_KIND)), field(FIELD_DETAILS), tierOrNull(field(FIELD_MIN_TIER)), pickedTags(form))) }
+                FORM_SUGGEST_CATEGORY -> reportSuggestion(
+                    circleApp.suggestTag(field(FIELD_SUGGEST_NAME), field(FIELD_SUGGEST_NOTE)),
+                    "Your suggestion was sent to the stewards.",
+                    "A steward needs to approve your access before you can suggest a category.",
+                )
                 FORM_TAG_ADD -> reportTag(circleApp.proposeTag(circleApp.newTag(field(FIELD_TAG_NAME))))
                 FORM_LOAN_REQUEST -> {
                     val from = CalendarDay.parse(field(FIELD_FROM))
@@ -714,6 +730,18 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
         return (0 until boxes.length).mapNotNull { (boxes.item(it) as? HTMLInputElement)?.takeIf { box -> box.checked }?.value }.map { circles.event.TagId(it) }
     }
 
+    private fun reportSuggestion(result: circles.app.PauseResult, sent: String, notAllowed: String) {
+        dispatch(
+            AppAction.Notice(
+                when (result) {
+                    circles.app.PauseResult.Sent -> sent
+                    is circles.app.PauseResult.Refused -> Notices.sentenceOf(result.reason)
+                    circles.app.PauseResult.NotAllowed -> notAllowed
+                },
+            ),
+        )
+    }
+
     private fun reportTag(result: circles.app.TagResult) {
         dispatch(
             AppAction.Notice(
@@ -886,6 +914,9 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
                 }
                 ACTION_TAG_RETIRE -> target.getAttribute(ATTR_TAG)?.let { tag ->
                     reportTag(circleApp?.proposeTag(circles.event.TagChange(circles.event.TagId(tag), circles.event.TagOp.RETIRE, null)) ?: circles.app.TagResult.NotAllowed)
+                }
+                ACTION_SUGGESTION_AGREE -> target.getAttribute(ATTR_TAG)?.let { tag ->
+                    reportTag(circleApp?.proposeTag(circles.event.TagChange(circles.event.TagId(tag), circles.event.TagOp.ADD, target.getAttribute(ATTR_TAG_NAME))) ?: circles.app.TagResult.NotAllowed)
                 }
                 ACTION_TAG_AGREE -> target.getAttribute(ATTR_TAG)?.let { tag ->
                     val op = circles.event.TagOp.entries.firstOrNull { it.name == target.getAttribute(ATTR_TAG_OP) }

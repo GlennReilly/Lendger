@@ -2,7 +2,7 @@ package circles.event
 
 import kotlin.jvm.JvmInline
 
-/** Kind-of-item tags (ADR 0086): a circle's list of words, kept by steward vote and picked by owners. */
+/** Category tags (ADR 0086, called categories in the UI by ADR 0088): a circle's list of words, kept by steward vote and picked by owners. */
 @JvmInline
 value class TagId(val v: String)
 
@@ -41,4 +41,39 @@ object TagNames {
             else -> null
         }
     }
+}
+
+// ---- member suggestions (ADR 0087) ----
+
+const val MAX_SUGGESTION_NOTE_CHARS = 140
+const val MAX_DECLINE_REASON_CHARS = 140
+
+/** A member may send this many suggestions in any [SUGGESTION_WINDOW_DAYS] days. */
+const val MAX_SUGGESTIONS_PER_WINDOW = 3
+const val SUGGESTION_WINDOW_DAYS = 30
+
+/** A suggestion nobody answers lapses this many days after it was sent. */
+const val SUGGESTION_LAPSE_DAYS = 30
+
+/** `tag.suggest`: a member asks for a new category. [tag] is a fresh id; a steward's `tag.change` ADD with the same id approves it. */
+data class TagSuggest(val tag: TagId, val name: String, val note: String)
+
+/** `tag.decline`: one steward closes a suggestion with a reason. */
+data class TagDecline(val tag: TagId, val reason: String)
+
+enum class SuggestionStatus { WAITING, ADDED, DECLINED, LAPSED }
+
+/** A suggestion as the fold holds it. Its status depends on the list and on the day, so it is worked out by [MarketView.suggestionStatus]. */
+data class TagSuggestion(
+    val tag: TagId,
+    val suggester: circles.policy.MemberId,
+    val name: String,
+    val note: String,
+    val sentDay: Int,
+    val declinedBy: circles.policy.MemberId? = null,
+    val declinedDay: Int? = null,
+    val declineReason: String? = null,
+) {
+    /** Open for an answer on [day]: not declined and not lapsed (the list is checked separately). */
+    fun openOn(day: Int): Boolean = declinedDay == null && day - sentDay < SUGGESTION_LAPSE_DAYS
 }

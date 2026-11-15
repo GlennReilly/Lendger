@@ -90,6 +90,7 @@ One short file per decision that is hard to reverse, changes a rule, picks a tec
 | [0084](0084-waiting-period-wording.md) | The "hold" after an unreported incident is called a waiting period, and the pages explain it | Accepted |
 | [0085](0085-circle-sets-level-and-waiting-period-per-item-kind.md) | Stewards set each kind of item's level and waiting-period membership | Accepted |
 | [0086](0086-item-tags.md) | Kind-of-item tags: a steward-managed list, picked by owners | Accepted |
+| [0087](0087-members-suggest-categories.md) | Members suggest new categories; stewards approve or decline | Accepted |
 | [0088](0088-value-class-and-category-wording.md) | Item classes are "value class", steward-managed tags are "category" (wording only) | Accepted |
 
 ## Open decisions still to record

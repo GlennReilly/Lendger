@@ -133,6 +133,20 @@ data class TagSummary(val tag: circles.event.TagId, val name: String, val retire
 /** A change to the kinds of item that some stewards have voted for (ADR 0086). [tagName] is the kind's current name, if it has one. */
 data class TagProposalSummary(val change: circles.event.TagChange, val tagName: String?, val agreeing: Int, val needed: Int, val iAgree: Boolean, val canAgree: Boolean)
 
+/** A member's suggested category as the pages show it (ADR 0087); the suggester and stewards are the only ones who get these. */
+data class SuggestionSummary(
+    val tag: circles.event.TagId,
+    val suggester: MemberId,
+    val name: String,
+    val note: String,
+    val sentDay: Int,
+    val status: circles.event.SuggestionStatus,
+    val declineReason: String?,
+    /** The category's name in the list now, once added (a steward may have corrected the spelling). */
+    val addedAs: String?,
+    val mine: Boolean,
+)
+
 sealed interface TagResult {
     data class Sent(val takesEffect: Boolean) : TagResult
 
@@ -499,6 +513,11 @@ data class HomeData(
     /** The circle's kinds of item, retired ones included, and the changes waiting for votes (ADR 0086). */
     val tags: List<TagSummary> = emptyList(),
     val tagProposals: List<TagProposalSummary> = emptyList(),
+    /** Suggested categories: the member's own, and for stewards everyone's (ADR 0087). Newest last. */
+    val suggestions: List<SuggestionSummary> = emptyList(),
+    /** False when the member has used up this month's suggestions; [suggestAgainDay] says when they can send another. */
+    val canSuggest: Boolean = true,
+    val suggestAgainDay: Int? = null,
     /** Contribution notes (ADR 0053). */
     val contributions: ContributionsSummary = ContributionsSummary(),
     /** Pauses that are over, newest first (same visibility as [pauses]). */
@@ -1065,6 +1084,25 @@ class CircleApp(
         )
     }
 
+    private fun suggestionsFor(view: circles.event.CircleView, me: MemberId, now: Int): List<SuggestionSummary> {
+        val market = view.market
+        val steward = me in view.stewards
+        return market.suggestions.filter { it.suggester !in market.departed && (steward || it.suggester == me) }.map {
+            val status = market.suggestionStatus(it, now)
+            SuggestionSummary(
+                it.tag, it.suggester, it.name, it.note, it.sentDay, status, it.declineReason,
+                if (status == circles.event.SuggestionStatus.ADDED) market.tags.firstOrNull { t -> t.tag == it.tag }?.name else null,
+                it.suggester == me,
+            )
+        }
+    }
+
+    /** The day the member may send another suggestion, or null if they may now (ADR 0087, D1). */
+    private fun suggestAgainDay(view: circles.event.CircleView, me: MemberId, now: Int): Int? {
+        val recent = view.market.suggestions.filter { it.suggester == me && now - it.sentDay < circles.event.SUGGESTION_WINDOW_DAYS }.sortedBy { it.sentDay }
+        return if (recent.size >= circles.event.MAX_SUGGESTIONS_PER_WINDOW) recent[recent.size - circles.event.MAX_SUGGESTIONS_PER_WINDOW].sentDay + circles.event.SUGGESTION_WINDOW_DAYS else null
+    }
+
     private fun tagProposalsFor(view: circles.event.CircleView, me: MemberId, now: Int): List<TagProposalSummary> {
         val needed = minOf(view.stewardSettings.quorum, view.stewards.size).coerceAtLeast(1)
         val since = view.stewardSince[me]
@@ -1108,6 +1146,25 @@ class CircleApp(
         s.scheduler.trigger(SyncTrigger.LOCAL_WRITE)
         refresh()
         return TagResult.Sent(takesEffect = after.market.pendingTags.none { it.change == change })
+    }
+
+    /** A member suggests a new category (ADR 0087). The fold pre-checks it; nothing is queued if it is refused. */
+    suspend fun suggestTag(name: String, note: String): PauseResult {
+        val tidyName = tidyTagName(name)
+        val tidyNote = note.trim()
+        if (tidyNote.length > circles.event.MAX_SUGGESTION_NOTE_CHARS) return PauseResult.Refused("A note for a suggested category can have at most ${circles.event.MAX_SUGGESTION_NOTE_CHARS} characters.")
+        val (s, _) = pauseSession() ?: return PauseResult.NotAllowed
+        return sendPause(s, s.author.tagSuggest(s.circle, today(), circles.event.TagSuggest(circles.event.newTagId(crypto), tidyName, tidyNote)))
+    }
+
+    /** One steward declines a suggested category, with a reason (ADR 0087). */
+    suspend fun declineSuggestion(tag: circles.event.TagId, reason: String): PauseResult {
+        val (s, view) = pauseSession() ?: return PauseResult.NotAllowed
+        if (s.identity.member !in view.stewards) return PauseResult.NotAllowed
+        val tidy = reason.trim()
+        if (tidy.isEmpty()) return PauseResult.Refused("Give a reason for declining a suggested category.")
+        if (tidy.length > circles.event.MAX_DECLINE_REASON_CHARS) return PauseResult.Refused("A reason for declining can have at most ${circles.event.MAX_DECLINE_REASON_CHARS} characters.")
+        return sendPause(s, s.author.tagDecline(s.circle, today(), circles.event.TagDecline(tag, tidy)))
     }
 
     /** A new tag id for an ADD vote; the proposer chooses it so that the others' agreement is the identical payload. */
@@ -1926,6 +1983,9 @@ class CircleApp(
                 rules = rulesFor(s.circle, view, me, now),
                 tags = view.market.tags.map { TagSummary(it.tag, it.name, it.retired) },
                 tagProposals = tagProposalsFor(view, me, now),
+                suggestions = suggestionsFor(view, me, now),
+                canSuggest = suggestAgainDay(view, me, now) == null,
+                suggestAgainDay = suggestAgainDay(view, me, now),
                 skills = view.market.skills.filter { !it.retired && it.owner !in view.market.departed }.map {
                     SkillSummary(it.skill, it.name, it.details, it.openTo, it.owner, it.owner == me)
                 },

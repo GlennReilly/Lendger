@@ -192,6 +192,23 @@ class MarketPayloadsTest {
     }
 
     @Test
+    fun tagSuggestAndDeclineRoundTripAndTheReadersAreStrict() {
+        val id = TagId("a1".repeat(16))
+        val suggest = TagSuggest(id, "Camping", "tents and stoves")
+        assertEquals(suggest, ok(MarketPayloads.parseTagSuggest(MarketPayloads.tagSuggest(suggest))))
+        assertEquals(suggest.copy(note = ""), ok(MarketPayloads.parseTagSuggest(MarketPayloads.tagSuggest(suggest.copy(note = "")))), "an empty note is allowed")
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagSuggest(MarketPayloads.tagSuggest(suggest.copy(note = "x".repeat(MAX_SUGGESTION_NOTE_CHARS + 1)))))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagSuggest(CborMap.of("tag" to CborText(id.v), "name" to CborText("Camping"))), "the note key is required")
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagSuggest(CborMap(MarketPayloads.tagSuggest(suggest).entries + ("extra" to CborText("x")))))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagSuggest(CborMap.of("tag" to CborText("short"), "name" to CborText("Camping"), "note" to CborText(""))))
+        val decline = TagDecline(id, "Covered by Garden")
+        assertEquals(decline, ok(MarketPayloads.parseTagDecline(MarketPayloads.tagDecline(decline))))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagDecline(MarketPayloads.tagDecline(decline.copy(reason = ""))), "a reason is required")
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagDecline(MarketPayloads.tagDecline(decline.copy(reason = "  "))))
+        assertIs<Parsed.Invalid>(MarketPayloads.parseTagDecline(MarketPayloads.tagDecline(decline.copy(reason = "x".repeat(MAX_DECLINE_REASON_CHARS + 1)))))
+    }
+
+    @Test
     fun aTagChangeRoundTripsAndTheReaderIsStrict() {
         val id = TagId("a1".repeat(16))
         for (change in listOf(TagChange(id, TagOp.ADD, "Garden"), TagChange(id, TagOp.RENAME, "Gardening"), TagChange(id, TagOp.RETIRE, null))) {

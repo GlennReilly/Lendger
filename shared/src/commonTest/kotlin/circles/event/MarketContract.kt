@@ -925,6 +925,86 @@ abstract class MarketContract {
         assertEquals(emptyList(), w.foldAs(w.founder).market.items.getValue(plain).tags)
     }
 
+    // ---- member suggestions (ADR 0087) ----
+
+    private fun World.suggest(by: EventAuthor, name: String, day: Int = DAY, id: TagId = newTagId(crypto), note: String = "") = TagSuggest(id, name, note) to by.tagSuggest(circle, day, TagSuggest(id, name, note))
+
+    @Test
+    fun aMemberSuggestsAndAStewardsAddWithTheSameIdMakesItAnAddedCategory() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 1))
+        val (s, e) = w.suggest(w.bea, "Camping", note = "tents and stoves")
+        w.log += e
+        var view = w.foldAs(w.founder)
+        assertEquals(emptyList(), view.rejected)
+        assertEquals(emptyList(), view.market.tags, "a suggestion never changes the list")
+        val sug = view.market.suggestions.single()
+        assertEquals(Triple(w.bea.identity.member, "Camping", "tents and stoves"), Triple(sug.suggester, sug.name, sug.note))
+        assertEquals(SuggestionStatus.WAITING, view.market.suggestionStatus(sug, DAY))
+        // A steward approves with a corrected name; the id links the two.
+        w.log += w.founder.tagChange(w.circle, DAY + 1, TagChange(s.tag, TagOp.ADD, "Camping gear"))
+        view = w.foldAs(w.founder)
+        assertEquals(listOf("Camping gear"), view.market.tags.map { it.name })
+        assertEquals(SuggestionStatus.ADDED, view.market.suggestionStatus(view.market.suggestions.single(), DAY + 2))
+    }
+
+    @Test
+    fun suggestionsAreRefusedForOutsidersDuplicatesBadNamesAndTooMany() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 1))
+        w.log += w.tagAdd(w.founder, "Garden").second
+        fun reason(e: Envelope) = w.reasons(listOf(e)).single()
+        assertEquals(TAG_NAME_TAKEN, reason(w.suggest(w.bea, "GARDEN").second))
+        assertEquals("A category's name cannot be empty.", reason(w.suggest(w.bea, "").second))
+        w.log += w.suggest(w.bea, "Camping", DAY).second
+        assertEquals("Another member has already suggested a category with that name.", reason(w.suggest(w.carol, "camping").second))
+        // Three in any 30 days; the fourth is refused with the day the first one stops counting.
+        w.log += w.suggest(w.bea, "Tools", DAY + 1).second
+        w.log += w.suggest(w.bea, "Kitchen", DAY + 2).second
+        assertEquals(emptyList(), w.foldAs(w.founder).rejected)
+        assertEquals(
+            "A member can suggest at most 3 categories in 30 days. The next suggestion can be sent on ${circles.app.ReasonDates.token(DAY + SUGGESTION_WINDOW_DAYS)}.",
+            reason(w.suggest(w.bea, "Toys", DAY + 3).second),
+        )
+        assertEquals(emptyList(), w.reasons(listOf(w.suggest(w.bea, "Toys", DAY + SUGGESTION_WINDOW_DAYS).second)), "the window has moved on")
+        assertEquals(emptyList(), w.reasons(listOf(w.suggest(w.carol, "Toys", DAY + 3).second)), "the limit is per member")
+    }
+
+    @Test
+    fun oneStewardDeclinesWithAReasonAndAddedWinsOverDeclined() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 1))
+        val (s, e) = w.suggest(w.bea, "Toys")
+        w.log += e
+        fun reason(x: Envelope) = w.reasons(listOf(x)).single()
+        assertEquals("Only a steward can decline a suggested category.", reason(w.carol.tagDecline(w.circle, DAY, TagDecline(s.tag, "No"))))
+        assertEquals("That suggested category is not in the circle.", reason(w.founder.tagDecline(w.circle, DAY, TagDecline(newTagId(w.crypto), "No"))))
+        w.log += w.founder.tagDecline(w.circle, DAY + 1, TagDecline(s.tag, "Toys are covered by Games"))
+        var view = w.foldAs(w.founder)
+        assertEquals(emptyList(), view.rejected)
+        val sug = view.market.suggestions.single()
+        assertEquals(Pair(SuggestionStatus.DECLINED, "Toys are covered by Games"), view.market.suggestionStatus(sug, DAY + 2) to sug.declineReason)
+        assertEquals("That suggestion has already been declined.", reason(w.founder.tagDecline(w.circle, DAY + 2, TagDecline(s.tag, "Again"))))
+        // A steward's ADD vote for the same id still works, and then added wins.
+        w.log += w.founder.tagChange(w.circle, DAY + 3, TagChange(s.tag, TagOp.ADD, "Toys"))
+        view = w.foldAs(w.founder)
+        assertEquals(SuggestionStatus.ADDED, view.market.suggestionStatus(view.market.suggestions.single(), DAY + 4))
+    }
+
+    @Test
+    fun aSuggestionLapsesAfterThirtyDaysAndCannotBeDeclinedThen() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 1))
+        val (s, e) = w.suggest(w.bea, "Toys")
+        w.log += e
+        val sug = w.foldAs(w.founder).market.let { it.suggestions.single() to it }
+        assertEquals(SuggestionStatus.WAITING, sug.second.suggestionStatus(sug.first, DAY + SUGGESTION_LAPSE_DAYS - 1))
+        assertEquals(SuggestionStatus.LAPSED, sug.second.suggestionStatus(sug.first, DAY + SUGGESTION_LAPSE_DAYS))
+        assertEquals(listOf("That suggestion has lapsed."), w.reasons(listOf(w.founder.tagDecline(w.circle, DAY + SUGGESTION_LAPSE_DAYS, TagDecline(s.tag, "Late")))))
+        // A lapsed suggestion no longer blocks the same name.
+        assertEquals(emptyList(), w.reasons(listOf(w.suggest(w.carol, "toys", DAY + SUGGESTION_LAPSE_DAYS).second)))
+    }
+
     // ---- circle rules (ADR 0051) ----
 
     private fun World.defaults() = ConfigSettings.of(StandingRules.defaultConfig(circle))

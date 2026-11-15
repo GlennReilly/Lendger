@@ -64,6 +64,8 @@ val SUPPORTED_TYPES: Set<EventType> = setOf(
     EventType.MEMBER_PROFILE,
     EventType.MEMBER_NAME_CONFIRM,
     EventType.TAG_CHANGE,
+    EventType.TAG_SUGGEST,
+    EventType.TAG_DECLINE,
 )
 
 /** Types whose whole payload is secret: empty `public`, a sealed `encrypted` (spec 3.2, ADR 0025). */

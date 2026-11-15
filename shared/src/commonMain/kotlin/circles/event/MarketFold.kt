@@ -151,7 +151,17 @@ class MarketView(
     /** The circle's kinds of item, retired ones included, in the order they were added (ADR 0086), and the changes still short of enough votes. */
     val tags: List<TagState> = emptyList(),
     val pendingTags: List<PendingTag> = emptyList(),
+    /** Members' suggested categories, newest last (ADR 0087). */
+    val suggestions: List<TagSuggestion> = emptyList(),
 ) {
+    /** Where a suggestion stands on [day]: added wins over everything, then declined, then lapsed (ADR 0087). */
+    fun suggestionStatus(s: TagSuggestion, day: Int): SuggestionStatus = when {
+        tags.any { it.tag == s.tag } -> SuggestionStatus.ADDED
+        s.declinedDay != null -> SuggestionStatus.DECLINED
+        day - s.sentDay >= SUGGESTION_LAPSE_DAYS -> SuggestionStatus.LAPSED
+        else -> SuggestionStatus.WAITING
+    }
+
     /** Who confirmed [member]'s current name and still counts: confirmers who have since left do not (ADR 0068). */
     fun nameConfirmers(member: MemberId): Set<MemberId> =
         names[member]?.confirmations?.keys?.filterTo(mutableSetOf()) { it !in departed }.orEmpty()
@@ -183,6 +193,7 @@ private val MARKET_TYPES = setOf(
     EventType.STANDING_CONFIRM, EventType.LOAN_DISPUTE, EventType.LOAN_RESOLVE,
     EventType.PAUSE_PROPOSE, EventType.PAUSE_REVIEW, EventType.PAUSE_APPEAL, EventType.PAUSE_LIFT, EventType.CONFIG_UPDATE, EventType.STANDING_NOTE,
     EventType.SKILL_UPSERT, EventType.SKILL_RETIRE, EventType.MEMBER_PROFILE, EventType.MEMBER_NAME_CONFIRM, EventType.TAG_CHANGE,
+    EventType.TAG_SUGGEST, EventType.TAG_DECLINE,
 )
 
 internal fun isMarketType(type: String): Boolean = EventType.fromWire(type) in MARKET_TYPES
@@ -216,6 +227,7 @@ internal class MarketFold(
     private val configProposals = linkedMapOf<ConfigSettings, PendingConfig>()
     private val tags = linkedMapOf<TagId, TagState>()
     private val tagProposals = linkedMapOf<TagChange, PendingTag>()
+    private val suggestions = linkedMapOf<TagId, TagSuggestion>()
 
     /** The circle's rules in force on [day] (ADR 0051). */
     private fun config(day: Int): circles.policy.CircleConfig =
@@ -230,7 +242,7 @@ internal class MarketFold(
             if (problem != null) rejected[event.id] = problem
         }
         val keys = myItemKeys()
-        return MarketResult(MarketView(items.toMap(), loans.toMap(), keys, openDetails(keys), vouches.toList(), devices.values.map { it.registration.member }.toSet().mapNotNull { member -> removedOn(member)?.let { member to it } }.toMap(), pauses.values.toList(), configs.toList(), configProposals.values.toList(), baseConfig, notes.values.toList(), skills.values.toList(), names.toMap(), identityIntervals.mapValues { it.value.toList() }, tags.values.toList(), tagProposals.values.toList()), rejected.toMap())
+        return MarketResult(MarketView(items.toMap(), loans.toMap(), keys, openDetails(keys), vouches.toList(), devices.values.map { it.registration.member }.toSet().mapNotNull { member -> removedOn(member)?.let { member to it } }.toMap(), pauses.values.toList(), configs.toList(), configProposals.values.toList(), baseConfig, notes.values.toList(), skills.values.toList(), names.toMap(), identityIntervals.mapValues { it.value.toList() }, tags.values.toList(), tagProposals.values.toList(), suggestions.values.toList()), rejected.toMap())
     }
 
     private fun apply(e: Envelope, payload: CborMap, id: EventId): String? = when (EventType.fromWire(e.type)) {
@@ -249,6 +261,8 @@ internal class MarketFold(
         EventType.MEMBER_NAME_CONFIRM -> parse(NamePayloads.parseConfirmation(payload)) { confirmName(e.author, it, e.day, id) }
         EventType.STANDING_NOTE -> parse(MarketPayloads.parseStandingNote(payload)) { noteContribution(e.author, it, e.day, id) }
         EventType.TAG_CHANGE -> parse(MarketPayloads.parseTagChange(payload)) { tagChange(e.author, it, e.day, id) }
+        EventType.TAG_SUGGEST -> parse(MarketPayloads.parseTagSuggest(payload)) { suggestTag(e.author, it, e.day) }
+        EventType.TAG_DECLINE -> parse(MarketPayloads.parseTagDecline(payload)) { declineTag(e.author, it, e.day, id) }
         EventType.CONFIG_UPDATE -> parse(MarketPayloads.parseConfigUpdate(payload)) { configUpdate(e.author, it, e.day, id) }
         EventType.PAUSE_PROPOSE -> parse(MarketPayloads.parsePausePropose(payload)) { proposePause(e.author, it, e.day, id) }
         EventType.PAUSE_REVIEW -> parse(MarketPayloads.parsePauseReview(payload)) { reviewPause(e.author, it, e.day, id) }
@@ -498,6 +512,34 @@ internal class MarketFold(
         } else {
             tagProposals[v] = proposal
         }
+        return null
+    }
+
+    // ---- member suggestions (ADR 0087) ----
+
+    private fun suggestTag(author: MemberId, v: TagSuggest, day: Int): String? {
+        if (author !in members()) return "Only a member of the circle can suggest a category."
+        if (suggestions.containsKey(v.tag) || tags.containsKey(v.tag)) return "That suggestion has already been recorded."
+        TagNames.problem(v.name)?.let { return it }
+        val key = NameKey.of(v.name)
+        if (tags.values.any { !it.retired && NameKey.of(it.name) == key }) return TAG_NAME_TAKEN
+        if (suggestions.values.any { it.openOn(day) && NameKey.of(it.name) == key }) return "Another member has already suggested a category with that name."
+        val recent = suggestions.values.filter { it.suggester == author && day - it.sentDay < SUGGESTION_WINDOW_DAYS }.sortedBy { it.sentDay }
+        if (recent.size >= MAX_SUGGESTIONS_PER_WINDOW) {
+            val again = recent[recent.size - MAX_SUGGESTIONS_PER_WINDOW].sentDay + SUGGESTION_WINDOW_DAYS
+            return "A member can suggest at most $MAX_SUGGESTIONS_PER_WINDOW categories in $SUGGESTION_WINDOW_DAYS days. The next suggestion can be sent on ${circles.app.ReasonDates.token(again)}."
+        }
+        suggestions[v.tag] = TagSuggestion(v.tag, author, v.name, v.note, day)
+        return null
+    }
+
+    private fun declineTag(author: MemberId, v: TagDecline, day: Int, id: EventId): String? {
+        if (author !in stewardFactsAt(id).stewards) return "Only a steward can decline a suggested category."
+        val s = suggestions[v.tag] ?: return "That suggested category is not in the circle."
+        if (tags.containsKey(v.tag)) return "That category has already been added."
+        if (s.declinedDay != null) return "That suggestion has already been declined."
+        if (!s.openOn(day)) return "That suggestion has lapsed."
+        suggestions[v.tag] = s.copy(declinedBy = author, declinedDay = day, declineReason = v.reason)
         return null
     }
 

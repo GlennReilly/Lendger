@@ -348,6 +348,24 @@ object MarketPayloads {
         },
     )
 
+    fun tagSuggest(v: TagSuggest): CborMap = CborMap.of(K_TAG to CborText(v.tag.v), K_NAME to CborText(v.name), K_NOTE to CborText(v.note))
+    fun tagDecline(v: TagDecline): CborMap = CborMap.of(K_TAG to CborText(v.tag.v), K_REASON to CborText(v.reason))
+
+    fun parseTagSuggest(map: CborMap): Parsed<TagSuggest> {
+        keys(map, required = setOf(K_TAG, K_NAME, K_NOTE))?.let { return Parsed.Invalid(it) }
+        val tag = randomId(map, K_TAG) ?: return Parsed.Invalid("tag must be 32 lowercase hex characters")
+        val name = (map[K_NAME] as? CborText)?.value ?: return Parsed.Invalid("name must be text")
+        val note = text(map, K_NOTE, MAX_SUGGESTION_NOTE_CHARS) ?: return Parsed.Invalid("note must be text of at most $MAX_SUGGESTION_NOTE_CHARS characters")
+        return Parsed.Ok(TagSuggest(TagId(tag), name, note))
+    }
+
+    fun parseTagDecline(map: CborMap): Parsed<TagDecline> {
+        keys(map, required = setOf(K_TAG, K_REASON))?.let { return Parsed.Invalid(it) }
+        val tag = randomId(map, K_TAG) ?: return Parsed.Invalid("tag must be 32 lowercase hex characters")
+        val reason = text(map, K_REASON, MAX_DECLINE_REASON_CHARS)?.takeIf { it.isNotBlank() } ?: return Parsed.Invalid("reason must be 1 to $MAX_DECLINE_REASON_CHARS characters")
+        return Parsed.Ok(TagDecline(TagId(tag), reason))
+    }
+
     fun parseTagChange(map: CborMap): Parsed<TagChange> {
         keys(map, required = setOf(K_TAG, K_OP), optional = setOf(K_NAME))?.let { return Parsed.Invalid(it) }
         val tag = randomId(map, K_TAG) ?: return Parsed.Invalid("tag must be 32 lowercase hex characters")
