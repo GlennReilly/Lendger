@@ -375,7 +375,7 @@ class ShellViewTest {
 
     @Test fun theMembersPageListsEveryoneWithRoleAndDevicesButNoFingerprintOnTheCards() {
         val html = members(home(people = listOf(aliceSummary, beaSummary)))
-        assertTrue("(you)" in html && ">Bea<" in html && NAME_NOT_CONFIRMED in html && NAME_CONFIRMED in html)
+        assertTrue("(you)" in html && ">Bea<" in html && NAME_NOT_CONFIRMED in html && "identity confirmed" !in html)
         assertTrue("Steward, 2 devices" in html)
         assertTrue("1 device<" in html)
         // Only my own QR disclosure carries characters (mine); nobody else's are on the page (ADR 0071).
@@ -1613,7 +1613,8 @@ class NamesViewTest {
 
     @Test fun membersShowNamesWithTheirStateAndTheConfirmFormNeedsTheInPersonTick() {
         val html = render(open(home(people = listOf(alice, beaToConfirm))).copy(screen = Screen.Members))
-        assertTrue("""<a href="#/members/person/${me.v}" class="person-name">Alice</a> <span class="name-status confirmed">$NAME_CONFIRMED</span> (you)""" in html)
+        assertTrue("""<a href="#/members/person/${me.v}" class="person-name">Alice</a> (you)""" in html)
+        assertFalse("identity confirmed" in html, "a confirmed name shows nothing extra")
         assertTrue("""<a href="#/members/person/${bea.v}" class="person-name">Bea</a> <span class="name-status unconfirmed">$NAME_NOT_CONFIRMED</span>""" in html)
         assertTrue("""Identity confirmed by <a href="#/members/person/${bea.v}" class="person-name">Bea</a>.""" in html)
         assertTrue("Nobody has confirmed this member's identity yet." in html)
@@ -1866,7 +1867,7 @@ class NamesViewTest {
         assertTrue("""<a href="#/members/person/${bea.v}" class="person-name">Bea</a>""" in html, html)
         assertTrue("""<a href="#/members/person/${me.v}" class="person-name">Alice</a>""" in html)
         assertFalse("""<span class="person-name">""" in html, "no plain-text name")
-        assertTrue(NAME_CONFIRMED in html, "the identity words stay outside the link")
+        assertFalse("identity confirmed" in html, "a confirmed name shows nothing extra")
     }
 
     @Test fun namesInSentencesAndHistoriesAreLinksToo() {
@@ -1889,7 +1890,7 @@ class NamesViewTest {
             past("3", LoanRole.STEWARD, LoanStatus.RETURNED, 20_720, 20_721, ReturnOutcome.OK, returned = 20_721),
         )
         val html = render(personState(bea, home(items = listOf(ladder, drill), loans = loans, people = listOf(meSummary, beaSummary), names = mapOf(me to NameSummary("Alice", true), bea to NameSummary("Bea", true))).copy(skills = listOf(beaSkill))))
-        assertTrue("Member" in html && "Bea" in html && NAME_CONFIRMED in html && "Identity confirmed by" in html)
+        assertTrue("Member" in html && "Bea" in html && "(identity confirmed)" !in html && "Identity confirmed by" in html)
         assertTrue("Steward of the circle." in html)
         assertTrue("Items on the list" in html && "Drill" in html && ACTION_BORROW_ITEM in html && "Ask to borrow" in html, "the existing ask-to-borrow logic")
         assertFalse("Ladder" in html.substringAfter("Items on the list").substringBefore("Skill offers"), "only Bea's items; the ladder is mine")

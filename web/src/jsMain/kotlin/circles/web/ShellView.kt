@@ -311,7 +311,6 @@ private const val ID_INVITE_OUTPUT = "invite-output"
 /** How a member without a name shows until they choose one (ADR 0068). */
 const val UNNAMED_MEMBER = "New member (waiting for a name)"
 /** Whether someone checked in person that this member is who they say (ADR 0068, worded per ADR 0071). */
-const val NAME_CONFIRMED = "(identity confirmed)"
 const val NAME_NOT_CONFIRMED = "(identity not confirmed yet)"
 const val FORM_MY_NAME = "name-form"
 const val FORM_RENAME = "rename-form"
@@ -353,11 +352,12 @@ fun FlowOrPhrasingContent.personName(home: HomeData, member: MemberId, showStatu
             +text
         }
     }
-    if (named != null && showStatus) {
+    // Only the missing confirmation is worth saying; a confirmed name shows nothing extra (ADR 0089).
+    if (named != null && showStatus && !named.confirmed) {
         +" "
         span {
-            classes = setOf("name-status", if (named.confirmed) "confirmed" else "unconfirmed")
-            +(if (named.confirmed) NAME_CONFIRMED else NAME_NOT_CONFIRMED)
+            classes = setOf("name-status", "unconfirmed")
+            +NAME_NOT_CONFIRMED
         }
     }
 }
@@ -1454,6 +1454,7 @@ private fun FlowContent.suggestionsToAnswer(home: HomeData) {
     if (waiting.isEmpty()) return
     h3 { +"Suggested by members" }
     ul {
+        classes = setOf("cards")
         for (s in waiting) li {
             personName(home, s.suggester)
             +" suggested \"${s.name}\" on ${DateText.show(s.sentDay)}."
@@ -2424,6 +2425,7 @@ private fun FlowContent.tagsSection(home: HomeData) {
             }
         }
         if (home.isSteward) {
+            h3 { +"Propose a new category" }
             form {
                 id = FORM_TAG_ADD
                 label {

@@ -448,9 +448,9 @@ try {
   ok('"Confirm identity" appears only after "I checked this person\'s identity in person" is ticked');
   await checkAccessibility(alice, 'check identity, confirming');
   await alice.evaluate(`document.getElementById("${confirmForm}").requestSubmit()`);
-  await until(alice, has(alice, 'You confirmed this member\'s identity.') + ' && ' + has(alice, 'Bea (identity confirmed)'), 'alice confirmed bea'); ok('alice confirmed bea\'s identity');
+  await until(alice, has(alice, 'You confirmed this member\'s identity.') + ' && ' + has(alice, 'Bea') + ' && !' + has(alice, 'Bea (identity not confirmed yet)'), 'alice confirmed bea'); ok('alice confirmed bea\'s identity');
   await syncUntil(alice, has(alice, 'Up to date'), 'alice pushed the confirmation');
-  await syncUntil(bea, 'location.hash = "#/members"; ' + has(bea, 'Bea (identity confirmed) (you)') + ' && ' + has(bea, 'Identity confirmed by Alice Smith.'), 'bea sees her identity confirmed'); ok('bea sees her identity confirmed by Alice Smith');
+  await syncUntil(bea, 'location.hash = "#/members"; ' + has(bea, 'Bea (you)') + ' && ' + has(bea, 'Identity confirmed by Alice Smith.'), 'bea sees her identity confirmed'); ok('bea sees her identity confirmed by Alice Smith');
   // Stewards: the lone steward is told the circle needs another, adds Bea, and the rules form waits for all three numbers.
   await alice.evaluate('location.hash = "#/stewards"'); await until(alice, has(alice, 'This circle has one steward'), 'steward page'); ok('a lone steward is told the circle needs another');
   await checkAccessibility(alice, 'stewards');
