@@ -18,7 +18,10 @@ const val NO_RECOVERY_SHARES = 0
 const val MIN_STEWARD_RECOVERY_THRESHOLD = 2
 const val MAX_STEWARD_RECOVERY_THRESHOLD = 9
 
-/** Fixed policy, not settings: how long votes may be apart, and how long a new steward waits before voting. */
+/**
+ * Fixed policy, not settings: how many days after a proposal's first vote later votes still count (ADR 0095),
+ * and how long a new steward waits before voting.
+ */
 const val DEFAULT_STEWARD_PROPOSAL_DAYS = 14
 const val DEFAULT_STEWARD_COOL_OFF_DAYS = 7
 
@@ -82,6 +85,20 @@ data class StewardPolicy(
 }
 
 enum class StewardChange { ADD, REMOVE, POLICY }
+
+/**
+ * The one window rule for every steward vote (ADR 0095): `steward.add`, `steward.remove`, `steward.policy`,
+ * `config.update` and `tag.change`. A proposal opens with its first vote; a later vote joins it while the later vote's
+ * day is no more than [DEFAULT_STEWARD_PROPOSAL_DAYS] after that first day (the last day is included). A vote after
+ * that starts a new proposal, with itself as the first vote, and the earlier votes no longer count.
+ */
+object ProposalWindow {
+    /** True while a vote on [day] still joins the proposal whose first vote was on [firstDay]. */
+    fun isOpen(firstDay: Int, day: Int, windowDays: Int = DEFAULT_STEWARD_PROPOSAL_DAYS): Boolean = day <= firstDay + windowDays
+
+    /** The last day on which a vote still joins the proposal whose first vote was on [firstDay]. */
+    fun lastDay(firstDay: Int, windowDays: Int = DEFAULT_STEWARD_PROPOSAL_DAYS): Int = firstDay + windowDays
+}
 
 /**
  * One steward's `steward.add`, `steward.remove` or `steward.policy` for a subject, on its signed [day].
@@ -177,23 +194,32 @@ object StewardRules {
         excluded: MemberId?,
         activity: StewardActivity?,
     ): StewardOutcome {
-        val counted = (priorVotes + StewardVote(voter, day, Long.MAX_VALUE)).filter { it.voter in stewards && it.voter != excluded }
-        if (quorumWithinWindow(counted, required, policy.proposalDays)) return StewardOutcome.Effective
+        val proposal = currentProposal(priorVotes + StewardVote(voter, day, Long.MAX_VALUE), policy.proposalDays)
+        val counted = proposal.filter { it.voter in stewards && it.voter != excluded }.map { it.voter }.toSet()
+        if (counted.size >= required) return StewardOutcome.Effective
         if (activity != null && required >= 2 && fallbackHolds(policy, voter, day, stewards, priorVotes, activity)) return StewardOutcome.Effective
         return StewardOutcome.Pending
     }
 
-    /** True if [required] distinct voters have votes no more than [windowDays] apart. */
-    private fun quorumWithinWindow(votes: List<StewardVote>, required: Int, windowDays: Int): Boolean {
-        val sorted = votes.sortedBy { it.day }
-        return sorted.any { start ->
-            sorted.filter { it.day >= start.day && it.day - start.day <= windowDays }.map { it.voter }.toSet().size >= required
+    /**
+     * The votes of the proposal that is open after [votes], taken in log order ([StewardVote.position]); ADR 0095.
+     * A vote outside the open proposal's window starts a new proposal and the earlier votes are dropped, exactly as
+     * `config.update` and `tag.change` votes are handled in `MarketFold`. Empty when [votes] is empty.
+     */
+    fun currentProposal(votes: List<StewardVote>, windowDays: Int = DEFAULT_STEWARD_PROPOSAL_DAYS): List<StewardVote> {
+        var proposal = emptyList<StewardVote>()
+        for (vote in votes.sortedBy { it.position }) {
+            val first = proposal.firstOrNull()
+            proposal = if (first != null && ProposalWindow.isOpen(first.day, vote.day, windowDays)) proposal + vote else listOf(vote)
         }
+        return proposal
     }
 
     /**
      * The inactivity fallback (ADR 0027 point 6): the voter's earliest matching event is old enough, every other steward
-     * was silent for long enough before it, and none of them has sent anything since.
+     * was silent for long enough before it, and none of them has sent anything since. The earliest event is taken from
+     * every vote recorded since the subject was last decided, not only the open proposal (ADR 0095): the fallback is
+     * not a vote count, and its delay may be longer than the proposal window.
      */
     private fun fallbackHolds(
         policy: StewardPolicy,

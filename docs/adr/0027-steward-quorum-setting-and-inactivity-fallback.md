@@ -1,6 +1,6 @@
 # 0027. Steward governance settings and the inactivity fallback
 
-- Status: Accepted (supersedes 0023; the minimum of `stewardInactiveDays` was lowered to 7 by ADR 0029)
+- Status: Accepted (supersedes 0023; the minimum of `stewardInactiveDays` was lowered to 7 by ADR 0029; ADR 0095 makes the 14-day proposal window of point 4 count from the first vote)
 - Date: 2026-11-03
 
 ## Context

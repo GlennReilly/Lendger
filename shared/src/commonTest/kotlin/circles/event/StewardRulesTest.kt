@@ -78,6 +78,59 @@ class StewardRulesTest {
         assertEquals(StewardOutcome.Pending, add(c, b, 101 + policy.proposalDays, stewards, old))
     }
 
+    // ---- ADR 0095: votes count within 14 days of the proposal's FIRST vote ----
+
+    private val three = mapOf(a to founding, b to founding, c to founding)
+    private val quorumThree = StewardPolicy(quorum = 3)
+
+    private fun addD(voter: MemberId, day: Int, prior: List<StewardVote>) =
+        StewardRules.decide(quorumThree, StewardChange.ADD, d, voter, day, three, prior)
+
+    @Test
+    fun aVoteAfterTheWindowStartsANewProposalAndTheEarlierVotesNoLongerCount() {
+        val v0 = StewardVote(a, 0, 1)
+        val v10 = StewardVote(b, 10, 2)
+        val v20 = StewardVote(c, 20, 3)
+        assertEquals(StewardOutcome.Pending, addD(b, 10, listOf(v0)))
+        assertEquals(StewardOutcome.Pending, addD(c, 20, listOf(v0, v10)))
+        // Under the old sliding window, a's vote on day 21 made days 10, 20 and 21 a quorum. Now day 20 began a new proposal.
+        assertEquals(StewardOutcome.Pending, addD(a, 21, listOf(v0, v10, v20)))
+        assertEquals(listOf(v20), StewardRules.currentProposal(listOf(v0, v10, v20)))
+        assertEquals(listOf(v20, StewardVote(a, 21, 4)), StewardRules.currentProposal(listOf(v0, v10, v20, StewardVote(a, 21, 4))))
+        // The new proposal still needs three distinct stewards within its own 14 days.
+        assertEquals(StewardOutcome.Effective, addD(b, 34, listOf(v0, v10, v20, StewardVote(a, 21, 4))))
+        assertEquals(StewardOutcome.Pending, addD(b, 35, listOf(v0, v10, v20, StewardVote(a, 21, 4))))
+    }
+
+    @Test
+    fun theLastDayOfTheWindowIsIncludedAndTheNextIsNot() {
+        val first = StewardVote(a, 0, 1)
+        assertEquals(StewardOutcome.Effective, addD(c, 14, listOf(first, StewardVote(b, 14, 2))))
+        assertEquals(StewardOutcome.Pending, addD(c, 15, listOf(first, StewardVote(b, 14, 2))))
+        assertEquals(listOf(StewardVote(c, 15, 3)), StewardRules.currentProposal(listOf(first, StewardVote(b, 14, 2), StewardVote(c, 15, 3))))
+        assertTrue(ProposalWindow.isOpen(0, 14))
+        assertTrue(!ProposalWindow.isOpen(0, 15))
+        assertEquals(14, ProposalWindow.lastDay(0))
+    }
+
+    @Test
+    fun theProposalIsJudgedInLogOrderNotByDay() {
+        // The first vote in the log opens the proposal, as for config.update and tag.change, even if a later one is dated earlier.
+        val votes = listOf(StewardVote(a, 10, 1), StewardVote(b, 5, 2))
+        assertEquals(votes, StewardRules.currentProposal(votes))
+        assertEquals(StewardOutcome.Effective, addD(c, 24, votes))
+        assertEquals(StewardOutcome.Pending, addD(c, 25, votes))
+        assertEquals(emptyList(), StewardRules.currentProposal(emptyList()))
+    }
+
+    @Test
+    fun aRestartedPolicyProposalCountsOnlyItsOwnVotes() {
+        val prior = listOf(StewardVote(a, 0, 1), StewardVote(b, 10, 2), StewardVote(c, 20, 3))
+        assertEquals(StewardOutcome.Pending, StewardRules.decidePolicy(quorumThree, StewardSettings(quorum = 4), a, 21, three, prior))
+        // Without the day-0 vote, days 10, 20 and 21 are one proposal (20 and 21 fall within 14 days of 10).
+        assertEquals(StewardOutcome.Effective, StewardRules.decidePolicy(quorumThree, StewardSettings(quorum = 4), a, 21, three, prior.drop(1)))
+    }
+
     @Test
     fun aNewStewardCannotVoteUntilTheCoolOffHasPassed() {
         val stewards = mapOf(a to founding, b to 100)
@@ -254,6 +307,22 @@ class StewardRulesTest {
         val day = 100 + MIN_STEWARD_FALLBACK_DELAY_DAYS
         assertEquals(StewardOutcome.Effective, StewardRules.decide(shortTimes, StewardChange.ADD, c, a, day, stewards, proposalAt100, activity))
         assertEquals(StewardOutcome.Pending, StewardRules.decide(policy, StewardChange.ADD, c, a, day, stewards, proposalAt100, activity))
+    }
+
+    @Test
+    fun theFallbackCountsFromTheFirstVoteSinceTheLastDecisionEvenAfterTheProposalRestarted() {
+        // ADR 0095: the quorum count restarts after 14 days, the fallback does not. A delay longer than the window still works.
+        val longDelay = policy.with(StewardSettings(quorum = 2, inactiveDays = 60, fallbackDelayDays = 30))
+        val stewards = mapOf(a to founding, b to founding)
+        val quiet = Activity(lastDay = mapOf(b to 1))
+        val restarted = listOf(StewardVote(a, 100, 10), StewardVote(a, 120, 20))
+        assertEquals(listOf(StewardVote(a, 120, 20)), StewardRules.currentProposal(restarted))
+        assertEquals(StewardOutcome.Pending, StewardRules.decide(longDelay, StewardChange.ADD, c, a, 129, stewards, restarted, quiet))
+        assertEquals(StewardOutcome.Effective, StewardRules.decide(longDelay, StewardChange.ADD, c, a, 130, stewards, restarted, quiet))
+        // At the default delay (14 days) a repeat after the window, on day 120, also takes effect by the fallback.
+        assertEquals(StewardOutcome.Effective, fallbackAdd(120, quiet))
+        // Another steward speaking since the first vote still cancels it.
+        assertEquals(StewardOutcome.Pending, StewardRules.decide(longDelay, StewardChange.ADD, c, a, 130, stewards, restarted, Activity(lastDay = mapOf(b to 1), activeSince = setOf(b))))
     }
 
     @Test

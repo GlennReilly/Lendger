@@ -1,6 +1,6 @@
 # 0023. Steward changes need a quorum of distinct stewards
 
-- Status: Superseded by 0027
+- Status: Superseded by 0027 (the wording of point 3, "within 14 days of each other", by 0095)
 - Date: 2026-11-02
 
 ## Context

@@ -194,6 +194,47 @@ abstract class CircleFoldContract {
     }
 
     @Test
+    fun stewardVotesCountOnlyWithin14DaysOfTheProposalsFirstVote() = runTest {
+        // ADR 0095: founder proposes carol on day 7 and repeats on day 17; bea agrees on day 27, which is past the
+        // window of the first vote (day 21), so her vote opens a new proposal and the founder's votes no longer count.
+        val w = world()
+        w.start()
+        w.joinCarol()
+        val addBea = w.founder.stewardAdd(w.circle, w.bea.identity.member, day)
+        val first = w.founder.stewardAdd(w.circle, w.carol.identity.member, day + 7)
+        val repeat = w.founder.stewardAdd(w.circle, w.carol.identity.member, day + 17)
+        val late = w.bea.stewardAdd(w.circle, w.carol.identity.member, day + 27)
+        val restarted = w.fold(w.founder, w.log + listOf(addBea, first, repeat, late))
+        assertEquals(setOf(w.founder.identity.member, w.bea.identity.member), restarted.stewards, "a sliding window would have counted days 17 and 27")
+        assertEquals(emptyList(), restarted.rejected)
+        val open = StewardRules.currentProposal(restarted.pendingStewardVotes.filter { it.subject == w.carol.identity.member.v }.map { it.vote })
+        assertEquals(listOf(w.bea.identity.member), open.map { it.voter })
+        assertEquals(day + 27, open.single().day)
+        // The founder agreeing to bea's new proposal within its 14 days makes carol a steward.
+        val agree = w.founder.stewardAdd(w.circle, w.carol.identity.member, day + 41)
+        val done = w.fold(w.founder, w.log + listOf(addBea, first, repeat, late, agree))
+        assertEquals(setOf(w.founder.identity.member, w.bea.identity.member, w.carol.identity.member), done.stewards)
+        assertEquals(emptyList(), done.pendingStewardVotes)
+        // On the 15th day after bea's vote it would have opened yet another proposal.
+        val tooLate = w.founder.stewardAdd(w.circle, w.carol.identity.member, day + 42)
+        assertEquals(setOf(w.founder.identity.member, w.bea.identity.member), w.fold(w.founder, w.log + listOf(addBea, first, repeat, late, tooLate)).stewards)
+    }
+
+    @Test
+    fun aSettingsProposalRestartsAfterItsWindowToo() = runTest {
+        val w = world()
+        w.start()
+        val addBea = w.founder.stewardAdd(w.circle, w.bea.identity.member, day)
+        val relaxed = StewardSettings(quorum = 1, inactiveDays = 45, fallbackDelayDays = 10)
+        val first = w.founder.stewardPolicy(w.circle, relaxed, day + 7)
+        val repeat = w.founder.stewardPolicy(w.circle, relaxed, day + 17)
+        val late = w.bea.stewardPolicy(w.circle, relaxed, day + 22)
+        assertEquals(StewardSettings(), w.fold(w.founder, w.log + listOf(addBea, first, repeat, late)).stewardSettings)
+        val inTime = w.bea.stewardPolicy(w.circle, relaxed, day + 21)
+        assertEquals(relaxed, w.fold(w.founder, w.log + listOf(addBea, first, repeat, inTime)).stewardSettings)
+    }
+
+    @Test
     fun theSameStewardsSecondDeviceDoesNotMakeAQuorum() = runTest {
         val w = world()
         w.start()

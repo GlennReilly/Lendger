@@ -679,6 +679,57 @@ class CircleAppEndToEndTest {
     }
 
     @Test
+    fun aStewardProposalClosesFourteenDaysAfterItsFirstVoteAndALaterVoteStartsANewOne() = apiTest {
+        // ADR 0095, as members see it on the Stewards page.
+        val transport = HttpTransport { method, path, body, token ->
+            api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }
+        }
+        val crypto = JvmCrypto()
+        var day = TODAY
+        val alice = browser(transport, crypto, today = { day })
+        alice.app.open(); alice.app.startCircle(PASSPHRASE); alice.app.syncOnce()
+        suspend fun join(): Browser {
+            val link = assertNotNull(alice.app.makeInvite()); alice.app.syncOnce()
+            val member = browser(transport, crypto, today = { day })
+            member.app.open(); member.app.join(link, PASSPHRASE); member.app.syncOnce(); alice.app.syncOnce()
+            alice.app.admit(home(alice.app).waiting.single().device); alice.app.syncOnce(); member.app.syncOnce()
+            return member
+        }
+        val bea = join()
+        val carol = join()
+        fun id(b: Browser) = home(b.app).me
+        fun sync() = runBlocking { repeat(2) { listOf(alice, bea, carol).forEach { it.app.syncOnce() } } }
+        fun pass(days: Int) { day += days; server.clock.advanceSeconds(days * 24L * 60 * 60) }
+        confirmIdentity(alice, bea, "Bea Lee"); confirmIdentity(alice, carol, "Carol Ng")
+        assertEquals(StewardResult.Sent(takesEffect = true), alice.app.proposeSteward(id(bea)))
+        sync()
+        pass(7) // Bea's cool-off
+
+        assertEquals(StewardResult.Sent(takesEffect = false), alice.app.proposeSteward(id(carol)))
+        sync()
+        pass(14) // the last day of the window: the proposal is still shown
+        sync()
+        assertEquals(1, home(bea.app).proposals.single().agreeing)
+        pass(1) // the day after: it has closed without enough agreement
+        sync()
+        assertEquals(emptyList(), home(bea.app).proposals)
+        assertEquals(emptyList(), home(alice.app).proposals)
+
+        // Bea's vote now opens a new proposal: Alice's old vote no longer counts, and Alice may agree again.
+        assertEquals(StewardResult.Sent(takesEffect = false), bea.app.proposeSteward(id(carol)))
+        sync()
+        val fresh = home(alice.app).proposals.single()
+        assertEquals(1, fresh.agreeing)
+        assertFalse(fresh.iAgree)
+        assertTrue(fresh.canAgree)
+        assertFalse(home(carol.app).isSteward)
+        assertEquals(StewardResult.Sent(takesEffect = true), alice.app.proposeSteward(id(carol)))
+        sync()
+        assertTrue(home(carol.app).isSteward)
+        listOf(alice, bea, carol).forEach { assertEquals(0, assertNotNull(it.app.syncOnce()).refused) }
+    }
+
+    @Test
     fun aRemovedMemberIsCutOffAndCannotReadAnythingAfterTheKeyRotation() = apiTest {
         val transport = HttpTransport { method, path, body, token ->
             api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }

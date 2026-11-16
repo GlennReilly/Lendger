@@ -130,6 +130,34 @@ class StewardTest {
     }
 
     @Test
+    fun votesCountOnlyWithin14DaysOfTheFirstVoteNotOfEachOther() {
+        // ADR 0095: day 0 opens the proposal, day 10 joins it, bea on day 20 is past day 14 and opens a new one.
+        twoStewards()
+        val start = TODAY + COOL_OFF
+        accept(founder.stewardAdd(circle, carol.identity.member, start))
+        waitDays(10)
+        accept(founder.stewardAdd(circle, carol.identity.member, start + 10))
+        waitDays(10)
+        accept(bea.stewardAdd(circle, carol.identity.member, start + 20))
+        assertEquals(ids(founder, bea), stewards(), "under a sliding window days 10 and 20 would have been a quorum")
+        assertEquals(3, server.rows("SELECT 1 FROM steward_votes").size, "old votes stay stored; the shared rules ignore them")
+        waitDays(1)
+        accept(founder.stewardAdd(circle, carol.identity.member, start + 21))
+        assertEquals(ids(founder, bea, carol), stewards())
+        assertEquals(0, server.rows("SELECT 1 FROM steward_votes").size)
+    }
+
+    @Test
+    fun theLastDayOfTheWindowStillCounts() {
+        twoStewards()
+        val start = TODAY + COOL_OFF
+        accept(founder.stewardAdd(circle, carol.identity.member, start))
+        waitDays(PROPOSAL_DAYS)
+        accept(bea.stewardAdd(circle, carol.identity.member, start + PROPOSAL_DAYS))
+        assertEquals(ids(founder, bea, carol), stewards())
+    }
+
+    @Test
     fun onlyAStewardMayVoteAndTheTargetMustBeANewMemberOfTheCircle() {
         twoStewards()
         reject(RejectionCode.NOT_STEWARD, carol.stewardAdd(circle, carol.identity.member, TODAY + COOL_OFF))

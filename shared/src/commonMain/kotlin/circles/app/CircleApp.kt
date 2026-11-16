@@ -24,7 +24,6 @@ import circles.event.StewardRules
 import circles.event.StewardSettings
 import circles.event.StewardVote
 import circles.event.DEFAULT_STEWARD_COOL_OFF_DAYS
-import circles.event.DEFAULT_STEWARD_PROPOSAL_DAYS
 import circles.event.DisputeClaim
 import circles.event.DisputeOutcome
 import circles.event.LoanId
@@ -1087,7 +1086,7 @@ class CircleApp(
         val coolingOff = view.stewardSettings.quorum > 1 && since != null && since != circles.event.FOUNDING_STEWARD_DAY && now < since + circles.event.DEFAULT_STEWARD_COOL_OFF_DAYS
         return RulesSummary(
             circles.event.ConfigSettings.of(view.market.configOn(circle, now)),
-            view.market.pendingConfigs.filter { now <= it.firstDay + circles.event.DEFAULT_STEWARD_PROPOSAL_DAYS }.map {
+            view.market.pendingConfigs.filter { circles.event.ProposalWindow.isOpen(it.firstDay, now) }.map {
                 RulesProposal(it.settings, it.voters.size, needed, me in it.voters, me in view.stewards && me !in it.voters && !coolingOff)
             },
         )
@@ -1116,7 +1115,7 @@ class CircleApp(
         val needed = minOf(view.stewardSettings.quorum, view.stewards.size).coerceAtLeast(1)
         val since = view.stewardSince[me]
         val coolingOff = view.stewardSettings.quorum > 1 && since != null && since != circles.event.FOUNDING_STEWARD_DAY && now < since + circles.event.DEFAULT_STEWARD_COOL_OFF_DAYS
-        return view.market.pendingTags.filter { now <= it.firstDay + circles.event.DEFAULT_STEWARD_PROPOSAL_DAYS }.map {
+        return view.market.pendingTags.filter { circles.event.ProposalWindow.isOpen(it.firstDay, now) }.map {
             TagProposalSummary(it.change, view.market.tags.firstOrNull { t -> t.tag == it.change.tag }?.name, it.voters.size, needed, me in it.voters, me in view.stewards && me !in it.voters && !coolingOff)
         }
     }
@@ -2110,9 +2109,10 @@ class CircleApp(
         val policy = StewardPolicy().with(view.stewardSettings)
         return view.pendingStewardVotes.groupBy { it.change to it.subject }.mapNotNull { (key, votes) ->
             val (change, subject) = key
-            val latest = votes.maxOf { it.vote.day }
-            val live = votes.map { it.vote }.filter { latest - it.day <= DEFAULT_STEWARD_PROPOSAL_DAYS && it.voter in view.stewards && it.voter.v != subject.takeIf { change == StewardChange.REMOVE } }
-            if (now - latest > DEFAULT_STEWARD_PROPOSAL_DAYS) return@mapNotNull null // the window closed without enough agreement
+            // ADR 0095: only the open proposal's votes count, and it closes 14 days after its first vote.
+            val proposal = StewardRules.currentProposal(votes.map { it.vote }, policy.proposalDays)
+            if (!circles.event.ProposalWindow.isOpen(proposal.first().day, now, policy.proposalDays)) return@mapNotNull null // the window closed without enough agreement
+            val live = proposal.filter { it.voter in view.stewards && it.voter.v != subject.takeIf { change == StewardChange.REMOVE } }
             val needed = if (change == StewardChange.REMOVE) policy.quorum else minOf(policy.quorum, view.stewards.size)
             val iAgree = live.any { it.voter == me }
             val settings = if (change == StewardChange.POLICY) StewardSettings.fromSubject(subject)?.let { StewardSettingsSummary(it.quorum, it.inactiveDays, it.fallbackDelayDays, it.recoveryThreshold) } else null
