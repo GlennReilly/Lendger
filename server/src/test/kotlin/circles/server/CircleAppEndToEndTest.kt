@@ -705,8 +705,16 @@ class CircleAppEndToEndTest {
         sync()
         pass(7) // Bea's cool-off
 
+        val opened = day
         assertEquals(StewardResult.Sent(takesEffect = false), alice.app.proposeSteward(id(carol)))
+        val defaults = home(alice.app).rules.current
+        assertEquals(RulesResult.Sent(takesEffect = false), alice.app.proposeRules(defaults.copy(halfLifeDays = 90)))
+        assertEquals(TagResult.Sent(takesEffect = false), alice.app.proposeTag(alice.app.newTag("Garden")))
         sync()
+        // Every kind of open proposal says its last day: the first vote's day plus 14, from the one shared rule.
+        assertEquals(opened + 14, home(bea.app).proposals.single().lastDay)
+        assertEquals(opened + 14, home(bea.app).rules.proposals.single().lastDay)
+        assertEquals(opened + 14, home(bea.app).tagProposals.single().lastDay)
         pass(14) // the last day of the window: the proposal is still shown
         sync()
         assertEquals(1, home(bea.app).proposals.single().agreeing)
@@ -720,6 +728,7 @@ class CircleAppEndToEndTest {
         sync()
         val fresh = home(alice.app).proposals.single()
         assertEquals(1, fresh.agreeing)
+        assertEquals(day + 14, fresh.lastDay, "a later vote starts a new window")
         assertFalse(fresh.iAgree)
         assertTrue(fresh.canAgree)
         assertFalse(home(carol.app).isSteward)

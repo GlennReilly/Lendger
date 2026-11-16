@@ -523,6 +523,14 @@ try {
   ok('alice made bea a steward (a lone steward needs no one else to agree)');
   await syncUntil(bea, 'location.hash = "#/stewards"; ' + has(bea, 'Can vote from'), 'bea sees she is cooling off'); ok('bea, the new steward, sees when she can vote from');
   if (await bea.evaluate('document.querySelector("[data-action=steward-remove]") === null')) throw new Error('a steward is not offered Step down'); ok('with two stewards a steward may step down or propose removal');
+  // Open proposals say when they close (ADR 0095): with two stewards a new category waits for the second one.
+  await alice.evaluate('location.hash = "#/stewards"'); await until(alice, 'document.getElementById("tag-add-form") !== null', 'stewards page for a proposal');
+  await submit(alice, 'tag-add-form', { 'tag-name': 'Tools' });
+  await until(alice, 'document.body.innerText.includes("1 of 2 stewards agree.")', 'the category waits for a second steward');
+  const closesRe = '/Open until \\d{1,2} [A-Z][a-z]{2} \\d{4}\\. If not enough stewards agree by then, the proposal lapses\\./';
+  await until(alice, closesRe + '.test(document.body.innerText)', 'the proposal says when it closes');
+  await checkAccessibility(alice, 'stewards with open proposals');
+  ok('an open proposal says when it closes and that it lapses if not enough stewards agree');
   await click(alice, 'lock'); await until(alice, has(alice, 'Sign in'), 'alice locked'); ok('alice locked');
   await checkAccessibility(alice, 'sign in (locked)');
   await submit(alice, 'unlock-form', { passphrase: 'wrong wrong wrong wrong' }); await until(alice, has(alice, 'That passphrase did not work'), 'wrong passphrase'); ok('wrong passphrase refused');

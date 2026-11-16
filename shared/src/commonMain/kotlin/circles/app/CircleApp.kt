@@ -116,7 +116,7 @@ data class RulesSummary(
     val proposals: List<RulesProposal> = emptyList(),
 )
 
-data class RulesProposal(val settings: circles.event.ConfigSettings, val agreeing: Int, val needed: Int, val iAgree: Boolean, val canAgree: Boolean)
+data class RulesProposal(val settings: circles.event.ConfigSettings, val agreeing: Int, val needed: Int, val iAgree: Boolean, val canAgree: Boolean, val lastDay: Int)
 
 sealed interface RulesResult {
     data class Sent(val takesEffect: Boolean) : RulesResult
@@ -130,7 +130,7 @@ sealed interface RulesResult {
 data class TagSummary(val tag: circles.event.TagId, val name: String, val retired: Boolean)
 
 /** A change to the kinds of item that some stewards have voted for (ADR 0086). [tagName] is the kind's current name, if it has one. */
-data class TagProposalSummary(val change: circles.event.TagChange, val tagName: String?, val agreeing: Int, val needed: Int, val iAgree: Boolean, val canAgree: Boolean)
+data class TagProposalSummary(val change: circles.event.TagChange, val tagName: String?, val agreeing: Int, val needed: Int, val iAgree: Boolean, val canAgree: Boolean, val lastDay: Int)
 
 /** A member's suggested category as the pages show it (ADR 0087); the suggester and stewards are the only ones who get these. */
 data class SuggestionSummary(
@@ -186,6 +186,8 @@ data class ProposalSummary(
     val needed: Int,
     val iAgree: Boolean,
     val canAgree: Boolean,
+    /** The last day a steward's agreement still counts (ADR 0095): the first vote's day plus the window. */
+    val lastDay: Int,
 )
 
 sealed interface RemoveResult {
@@ -1087,7 +1089,7 @@ class CircleApp(
         return RulesSummary(
             circles.event.ConfigSettings.of(view.market.configOn(circle, now)),
             view.market.pendingConfigs.filter { circles.event.ProposalWindow.isOpen(it.firstDay, now) }.map {
-                RulesProposal(it.settings, it.voters.size, needed, me in it.voters, me in view.stewards && me !in it.voters && !coolingOff)
+                RulesProposal(it.settings, it.voters.size, needed, me in it.voters, me in view.stewards && me !in it.voters && !coolingOff, circles.event.ProposalWindow.lastDay(it.firstDay))
             },
         )
     }
@@ -1116,7 +1118,7 @@ class CircleApp(
         val since = view.stewardSince[me]
         val coolingOff = view.stewardSettings.quorum > 1 && since != null && since != circles.event.FOUNDING_STEWARD_DAY && now < since + circles.event.DEFAULT_STEWARD_COOL_OFF_DAYS
         return view.market.pendingTags.filter { circles.event.ProposalWindow.isOpen(it.firstDay, now) }.map {
-            TagProposalSummary(it.change, view.market.tags.firstOrNull { t -> t.tag == it.change.tag }?.name, it.voters.size, needed, me in it.voters, me in view.stewards && me !in it.voters && !coolingOff)
+            TagProposalSummary(it.change, view.market.tags.firstOrNull { t -> t.tag == it.change.tag }?.name, it.voters.size, needed, me in it.voters, me in view.stewards && me !in it.voters && !coolingOff, circles.event.ProposalWindow.lastDay(it.firstDay))
         }
     }
 
@@ -2125,6 +2127,7 @@ class CircleApp(
                 needed = needed,
                 iAgree = iAgree,
                 canAgree = me in view.stewards && !iAgree && !cooling,
+                lastDay = circles.event.ProposalWindow.lastDay(proposal.first().day, policy.proposalDays),
             )
         }
     }

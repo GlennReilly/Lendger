@@ -2370,6 +2370,13 @@ private fun FlowContent.standing(standing: StandingSummary?, home: HomeData? = n
     }
 }
 
+/** When an open proposal closes (ADR 0095): a full sentence, never colour alone; the last day has its own wording. */
+fun proposalClosesLine(lastDay: Int, today: Int): String {
+    val date = DateText.show(lastDay)
+    return if (lastDay <= today) "Last day for stewards to agree ($date)."
+    else "Open until $date. If not enough stewards agree by then, the proposal lapses."
+}
+
 private fun FlowContent.agreeButton(proposal: ProposalSummary) {
     val (action, subject) = when (proposal.change) {
         StewardChange.ADD -> ACTION_STEWARD_ADD to proposal.member?.v
@@ -2450,6 +2457,7 @@ private fun FlowContent.tagsSection(home: HomeData) {
         if (home.isSteward) suggestionsToAnswer(home)
         for (proposal in home.tagProposals) {
             p { +"${tagProposalText(proposal)}. ${proposal.agreeing} of ${proposal.needed} stewards agree." }
+            p { +proposalClosesLine(proposal.lastDay, home.today) }
             if (proposal.canAgree) button(type = ButtonType.button) {
                 attributes[ATTR_ACTION] = ACTION_TAG_AGREE
                 attributes[ATTR_TAG] = proposal.change.tag.v
@@ -2524,6 +2532,7 @@ private fun FlowContent.stewards(home: HomeData) {
                     li {
                         p { proposalText(home, proposal) }
                         p { +"${proposal.agreeing} of ${proposal.needed} stewards agree." }
+                        p { +proposalClosesLine(proposal.lastDay, home.today) }
                         if (proposal.iAgree) p { +"You agree." }
                         if (proposal.canAgree) agreeButton(proposal)
                     }
@@ -2587,6 +2596,7 @@ private fun FlowContent.stewards(home: HomeData) {
             p {
                 +"Proposed: points for levels ${TierText.number(Tier.REGULAR)}, ${TierText.number(Tier.TRUSTED)} and ${TierText.number(Tier.STEWARD)} ${tenthsText(s.regularTenths)} / ${tenthsText(s.trustedTenths)} / ${tenthsText(s.stewardTenths)}, half-life ${s.halfLifeDays}, vouches ${s.vouchesForRegular} for ${s.vouchValidityDays} days, pause reviewers ${s.reviewersForPause} for ${s.defaultPauseDays} days, waiting period after an incident ${s.incidentCooldownDays} days, ${classRuleSummary(s)}. ${proposal.agreeing} of ${proposal.needed} stewards agree."
             }
+            p { +proposalClosesLine(proposal.lastDay, home.today) }
             if (proposal.canAgree) {
                 button(type = ButtonType.button) {
                     attributes[ATTR_ACTION] = ACTION_RULES_AGREE

@@ -509,7 +509,7 @@ class ShellViewTest {
     private val oldKind = circles.app.TagSummary(circles.event.TagId("6".repeat(32)), "Camping", retired = true)
 
     @Test fun stewardsSeeTheKindsOfItemWithFormsAndPendingVotes() {
-        val proposal = circles.app.TagProposalSummary(circles.event.TagChange(garden.tag, circles.event.TagOp.RETIRE, null), "Garden", 1, 2, iAgree = false, canAgree = true)
+        val proposal = circles.app.TagProposalSummary(circles.event.TagChange(garden.tag, circles.event.TagOp.RETIRE, null), "Garden", 1, 2, iAgree = false, canAgree = true, lastDay = 20_790)
         val html = render(open(home().copy(tags = listOf(garden, oldKind), tagProposals = listOf(proposal))).copy(screen = Screen.Stewards))
         assertTrue("Categories" in html)
         assertTrue("""id="$FORM_TAG_ADD"""" in html)
@@ -517,6 +517,7 @@ class ShellViewTest {
         assertTrue("""$ATTR_ACTION="$ACTION_TAG_RETIRE"""" in html)
         assertTrue("Retired categories: Camping." in html)
         assertTrue("Retire the category" in html && "1 of 2 stewards agree." in html)
+        assertTrue("Open until 3 Dec 2026. If not enough stewards agree by then, the proposal lapses." in html, "categories show when the vote closes")
         assertTrue("""$ATTR_ACTION="$ACTION_TAG_AGREE"""" in html)
     }
 
@@ -922,10 +923,11 @@ class ShellViewTest {
     }
 
     @Test fun proposalsShowProgressAndOnlyThoseWhoCanVoteSeeAgree() {
-        val add = ProposalSummary(StewardChange.ADD, MemberId("c".repeat(32)), null, agreeing = 1, needed = 2, iAgree = false, canAgree = true)
+        val add = ProposalSummary(StewardChange.ADD, MemberId("c".repeat(32)), null, agreeing = 1, needed = 2, iAgree = false, canAgree = true, lastDay = 20_790)
         val html = stewards(true, listOf(meSteward, beaSteward), listOf(add))
         assertTrue(">$UNNAMED_MEMBER</a> as a steward" in html && "Propose <a" in html)
         assertTrue("1 of 2 stewards agree." in html)
+        assertTrue("Open until 3 Dec 2026. If not enough stewards agree by then, the proposal lapses." in html, "steward proposals show when they close")
         assertTrue("""$ATTR_ACTION="$ACTION_STEWARD_ADD" $ATTR_SUBJECT="${"c".repeat(32)}"""" in html)
         val mine = stewards(true, listOf(meSteward, beaSteward), listOf(add.copy(iAgree = true, canAgree = false)))
         assertTrue("You agree." in mine)
@@ -934,16 +936,25 @@ class ShellViewTest {
         assertFalse(">Agree<" in cooling)
     }
 
+    @Test fun theClosingLineNamesTheLastDayInWords() {
+        DateText.current = circles.app.DateFormat.DEFAULT
+        assertEquals("Open until 3 Dec 2026. If not enough stewards agree by then, the proposal lapses.", proposalClosesLine(20_790, 20_759))
+        assertEquals("Open until 3 Dec 2026. If not enough stewards agree by then, the proposal lapses.", proposalClosesLine(20_790, 20_789))
+        assertEquals("Last day for stewards to agree (3 Dec 2026).", proposalClosesLine(20_790, 20_790))
+        val html = stewards(true, listOf(meSteward, beaSteward), listOf(ProposalSummary(StewardChange.ADD, bea, null, 1, 2, false, true, lastDay = 20_759)))
+        assertTrue("Last day for stewards to agree (2 Nov 2026)." in html)
+    }
+
     @Test fun settingsProposalsCarryTheirSettingsAndRemovalsSayWho() {
-        val rules = ProposalSummary(StewardChange.POLICY, null, StewardSettingsSummary(1, 60, 14), 1, 2, iAgree = false, canAgree = true)
+        val rules = ProposalSummary(StewardChange.POLICY, null, StewardSettingsSummary(1, 60, 14), 1, 2, iAgree = false, canAgree = true, lastDay = 20_790)
         val html = stewards(true, listOf(meSteward, beaSteward), listOf(rules))
         assertTrue("Change the rules: 1 to agree, 60 quiet days, 14 days to wait, no recovery shares" in html)
-        val withShares = ProposalSummary(StewardChange.POLICY, null, StewardSettingsSummary(1, 60, 14, 3), 1, 2, iAgree = false, canAgree = true)
+        val withShares = ProposalSummary(StewardChange.POLICY, null, StewardSettingsSummary(1, 60, 14, 3), 1, 2, iAgree = false, canAgree = true, lastDay = 20_790)
         val sharesHtml = stewards(true, listOf(meSteward, beaSteward), listOf(withShares))
         assertTrue("3 stewards to rebuild the key" in sharesHtml)
         assertTrue("""$ATTR_SUBJECT="1:60:14:3"""" in sharesHtml)
         assertTrue("""$ATTR_ACTION="$ACTION_STEWARD_SETTINGS" $ATTR_SUBJECT="1:60:14:0"""" in html)
-        val removal = ProposalSummary(StewardChange.REMOVE, bea, null, 1, 2, false, true)
+        val removal = ProposalSummary(StewardChange.REMOVE, bea, null, 1, 2, false, true, 20_790)
         assertTrue(">Bea</a> as a steward" in stewards(true, listOf(meSteward, beaSteward), listOf(removal)))
     }
 
@@ -1308,17 +1319,18 @@ class ShellViewTest {
 
     @Test fun theStewardsPageShowsTheCircleRulesInWordsAndProposalsToAgreeTo() {
         val changed = defaultRules.copy(halfLifeDays = 90)
-        val summary = circles.app.RulesSummary(defaultRules, listOf(circles.app.RulesProposal(changed, 1, 2, iAgree = false, canAgree = true)))
+        val summary = circles.app.RulesSummary(defaultRules, listOf(circles.app.RulesProposal(changed, 1, 2, iAgree = false, canAgree = true, lastDay = 20_790)))
         val html = render(open(home().copy(rules = summary, stewardCount = 2)).copy(screen = Screen.Stewards))
         assertTrue("Points for Level 2, Level 3 and Level 4: 3.0, 10.0 and 25.0" in html)
         assertTrue("Vouches needed to reach Level 2: 2," in html)
         assertTrue("Proposed: points for levels 2, 3 and 4 3.0 / 10.0 / 25.0," in html)
         assertTrue("Points fade by half every 180 days" in html)
         assertTrue("1 of 2 stewards agree." in html)
+        assertTrue("Open until 3 Dec 2026. If not enough stewards agree by then, the proposal lapses." in html, "rule proposals show when they close")
         assertTrue("""$ATTR_ACTION="$ACTION_RULES_AGREE" $ATTR_RULES="30:100:250:90:2:180:3:30:90:1:2:3:0:1:1"""" in html)
         assertTrue("Things decided before then keep the rules they were decided under." in html)
         assertTrue("""id="$FORM_RULES"""" in html)
-        val voted = circles.app.RulesProposal(changed, 1, 2, iAgree = true, canAgree = false)
+        val voted = circles.app.RulesProposal(changed, 1, 2, iAgree = true, canAgree = false, lastDay = 20_790)
         assertFalse(ACTION_RULES_AGREE in render(open(home().copy(rules = summary.copy(proposals = listOf(voted)))).copy(screen = Screen.Stewards)))
     }
 
