@@ -19,6 +19,7 @@ Read `docs/spec/community-sharing-app-design.md` (why) and `docs/spec/community-
 - A field goes in an event's `public` part only if the server must read it; everything else is `encrypted` (ADR 0004).
 - Every behaviour in the spec needs a test. Write an ADR for decisions that are hard to reverse; never edit an accepted ADR, supersede it.
 - Run `./gradlew check` (both targets plus server) before saying something is done.
+- Keep the rules reference current: the Claude Docs document "Lendger - Logic Flows and Business Rules" (https://claude.ai/artifact/2Gq2n8zTK9y37bLT85Une4) must match the code. Any change to a business rule, a limit, a flow, who may do what, or where a rule is enforced (server / each member's app / app before sending / app) updates the matching section and rules-table row in the same piece of work, before it is called done. Edit it with the Claude Docs tools (read the section first, edit in place, keep the "Enforced by" wording and ADR citations), and look at any changed diagram in a screenshot read.
 
 ## Session protocol
 At the end of each session, update this file with architectural or tooling decisions made, milestones completed or in progress, and gotchas learned.
