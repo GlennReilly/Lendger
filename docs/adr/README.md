@@ -93,6 +93,7 @@ One short file per decision that is hard to reverse, changes a rule, picks a tec
 | [0087](0087-members-suggest-categories.md) | Members suggest new categories; stewards approve or decline | Accepted |
 | [0088](0088-value-class-and-category-wording.md) | Item classes are "value class", steward-managed tags are "category" (wording only) | Accepted |
 | [0089](0089-confirmed-names-show-nothing-extra.md) | A confirmed name shows nothing extra; only "not confirmed yet" is said (wording only) | Accepted |
+| [0090](0090-first-members-confirm-the-founder.md) | The circle's first members may confirm the founder's identity | Accepted |
 
 ## Open decisions still to record
 

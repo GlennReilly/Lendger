@@ -1949,6 +1949,12 @@ class NamesViewTest {
         assertTrue("where you tick that you checked in person" in usable)
     }
 
+    @Test fun aFirstMemberSeesConfirmIdentityOnTheFoundersPage() {
+        // the founder is a steward and the viewer is a Level 1 first member: the app sets canConfirmName (ADR 0090), the page offers the button
+        val founderPage = personActions(beaSummary.copy(isSteward = true, nameConfirmedBy = emptyList(), canConfirmName = true))
+        assertEquals(listOf("Check identity in person", "Confirm identity"), launchButtons(founderPage))
+    }
+
     @Test fun anUnusableButtonIsReplacedByOnePlainSentenceWhy() {
         val confirmed = personActions(beaSummary.copy(canConfirmName = false))
         assertEquals(listOf("Check identity in person"), launchButtons(confirmed))

@@ -212,6 +212,9 @@ internal class MarketFold(
     private val stewardsAt: (EventId) -> Set<MemberId> = { emptySet() },
     private val baseConfig: circles.policy.CircleConfig = StandingRules.defaultConfig(circle),
     private val stewardFactsAt: (EventId) -> StewardFacts = { StewardFacts(emptySet(), DEFAULT_STEWARD_QUORUM, emptyMap()) },
+    /** The circle's founder and its first members: the latter may confirm the former at any level (ADR 0090). */
+    private val founder: MemberId? = null,
+    private val firstMembers: Set<MemberId> = emptySet(),
 ) {
     private val vouches = mutableListOf<circles.policy.Vouch>()
     private val items = mutableMapOf<ItemId, ItemState>()
@@ -411,7 +414,11 @@ internal class MarketFold(
         if (v.profile != current.profile || v.name != current.name) return "The member's name has changed since, so this confirmation no longer applies."
         if (author in current.confirmations) return "You have already confirmed this member's identity."
         val tier = StandingRules.standingOf(author, config(day), loans.values, vouchesCounting(day), stewardsAt(id), day, confirmedNotes()).tier
-        if (author !in stewardsAt(id) && tier.rank < Tier.REGULAR.rank) return "Only a member at ${circles.policy.TierText.orAbove(Tier.REGULAR)}, or a steward, can confirm someone's identity."
+        val firstMemberConfirmsFounder = v.member == founder && author in firstMembers
+        if (author !in stewardsAt(id) && tier.rank < Tier.REGULAR.rank && !firstMemberConfirmsFounder) {
+            return if (v.member == founder) "Only a member at ${circles.policy.TierText.orAbove(Tier.REGULAR)}, a steward, or one of the first $FIRST_MEMBERS_WHO_MAY_CONFIRM_FOUNDER members whose access was approved can confirm the founder's identity."
+            else "Only a member at ${circles.policy.TierText.orAbove(Tier.REGULAR)}, or a steward, can confirm someone's identity."
+        }
         val confirmations = current.confirmations + (author to day)
         names[v.member] = current.copy(
             confirmations = confirmations,

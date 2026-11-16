@@ -1287,6 +1287,37 @@ abstract class MarketContract {
     }
 
     @Test
+    fun theFirstMembersMayConfirmTheFounderAtAnyLevelButTheFourthMayNot() = runTest {
+        val w = world() // bea and carol are the first two members whose access a steward approved
+        val dave = w.person().also { it.keyRing = KeyRing.EMPTY.with(FIRST_EPOCH, w.circleKey) }
+        val invite = InviteKey(w.crypto.generateSigningKeyPair())
+        val inviteEvent = w.founder.invite(w.circle, invite, DAY + 30, 1, DAY)
+        val erin = w.person().also { it.keyRing = KeyRing.EMPTY.with(FIRST_EPOCH, w.circleKey) }
+        val invite2 = InviteKey(w.crypto.generateSigningKeyPair())
+        val inviteEvent2 = w.founder.invite(w.circle, invite2, DAY + 30, 1, DAY)
+        w.log += inviteEvent; w.log += dave.join(w.circle, inviteEvent.eventId(w.crypto), invite, DAY)
+        w.log += w.founder.keyWrap(w.circle, dave.identity.registration, FIRST_EPOCH, w.circleKey, DAY) // the third member
+        w.log += inviteEvent2; w.log += erin.join(w.circle, inviteEvent2.eventId(w.crypto), invite2, DAY)
+        w.log += w.founder.keyWrap(w.circle, erin.identity.registration, FIRST_EPOCH, w.circleKey, DAY) // the fourth member
+        val founderName = w.founder.memberProfile(w.circle, DAY, "Alice")
+        val beaName = w.bea.memberProfile(w.circle, DAY, "Bea")
+        w.log += founderName; w.log += beaName
+        val founderProfile = founderName.eventId(w.crypto)
+        val founderMember = w.founder.identity.member
+        // the third member confirms the founder although new; the fourth is refused; a first member still may not confirm another new member
+        assertEquals(emptyList(), w.reasons(listOf(dave.confirmName(w.circle, DAY, founderMember, founderProfile, "Alice"))))
+        assertTrue(w.foldAs(w.founder, w.log + dave.confirmName(w.circle, DAY, founderMember, founderProfile, "Alice")).market.nameConfirmed(founderMember))
+        assertEquals(
+            listOf("Only a member at Level 2 or above, a steward, or one of the first $FIRST_MEMBERS_WHO_MAY_CONFIRM_FOUNDER members whose access was approved can confirm the founder's identity."),
+            w.reasons(listOf(erin.confirmName(w.circle, DAY, founderMember, founderProfile, "Alice"))),
+        )
+        assertEquals(
+            listOf("Only a member at Level 2 or above, or a steward, can confirm someone's identity."),
+            w.reasons(listOf(w.carol.confirmName(w.circle, DAY, w.bea.identity.member, beaName.eventId(w.crypto), "Bea"))),
+        )
+    }
+
+    @Test
     fun onlyAnotherMemberAtRegularOrAboveMayConfirmAndBadNamesAreRefused() = runTest {
         val w = world()
         val bea = w.bea.identity.member

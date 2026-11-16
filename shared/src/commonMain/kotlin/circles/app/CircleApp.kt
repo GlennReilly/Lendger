@@ -2025,7 +2025,7 @@ class CircleApp(
                         nameConfirmedBy = confirmers.toList(),
                         iConfirmed = me in confirmers,
                         canConfirmName = named != null && member != me && me !in named.confirmations &&
-                            (me in view.stewards || myStanding.tier.rank >= Tier.REGULAR.rank),
+                            (me in view.stewards || myStanding.tier.rank >= Tier.REGULAR.rank || (member == view.founder && me in view.firstMembers)),
                     )
                 },
                 loans = view.market.loans.values

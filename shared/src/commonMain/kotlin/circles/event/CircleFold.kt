@@ -43,6 +43,10 @@ class CircleView(
     val commitments: Map<Int, ByteString> = emptyMap(),
     /** Members whose newest name claim was refused because the name was taken, with the name they tried (ADR 0069). */
     val nameRefusals: Map<MemberId, String> = emptyMap(),
+    /** The member who made the circle (null before `circle.create`). */
+    val founder: MemberId? = null,
+    /** The first [FIRST_MEMBERS_WHO_MAY_CONFIRM_FOUNDER] members whose access a steward approved, the founder excluded (ADR 0090). */
+    val firstMembers: Set<MemberId> = emptySet(),
 )
 
 /** The last `recovery.share` of an epoch, to tell whether the next one continues its set (ADR 0048, ADR 0065). */
@@ -148,7 +152,7 @@ class CircleFold(
             }
         }
         val opened = accepted.map { (id, envelope) -> OpenedEvent(id, envelope, PayloadSealing.open(cipher, state.keys, envelope)) }
-        val market = MarketFold(cipher, me, circle, state.devices, mayBorrow, { stewardsAfter[it].orEmpty() }, stewardFactsAt = { factsAfter[it] ?: StewardFacts(emptySet(), DEFAULT_STEWARD_QUORUM, emptyMap()) }).fold(opened)
+        val market = MarketFold(cipher, me, circle, state.devices, mayBorrow, { stewardsAfter[it].orEmpty() }, founder = state.founder, firstMembers = state.firstMembers(), stewardFactsAt = { factsAfter[it] ?: StewardFacts(emptySet(), DEFAULT_STEWARD_QUORUM, emptyMap()) }).fold(opened)
         val refused = opened.filter { it.id in market.rejected }.map { RejectedEvent(it.id, it.envelope.type, market.rejected.getValue(it.id)) }
         // ADR 0069: a member whose newest name claim lost to a name someone else holds is told why.
         val nameRefusals = mutableMapOf<MemberId, String>()
@@ -164,6 +168,7 @@ class CircleFold(
                 opened.filter { it.id !in market.rejected }, state.rejected.toList() + refused, market.view, state.settings,
                 state.stewards.toMap(), state.stewardVotes.map { PendingStewardVote(it.first, it.second, it.third) },
                 state.unrotatedRemovals(), state.heldShares.toMap(), state.shareHolders.mapValues { it.value.toSet() }, state.commitmentsSnapshot(), nameRefusals,
+                state.founder, state.firstMembers(),
             ),
             indexOf,
         )
@@ -172,6 +177,10 @@ class CircleFold(
     private inner class State(val circle: CircleId, val identityOk: (MemberId, Long) -> Boolean) {
         /** The member who made the circle: exempt from the identity rule, since nobody else could have confirmed them (ADR 0079). */
         var founder: MemberId? = null
+
+        /** Members in the order a steward first wrapped the key to one of their devices: their access approval (ADR 0090). */
+        private val approved = mutableListOf<MemberId>()
+        fun firstMembers(): Set<MemberId> = approved.take(FIRST_MEMBERS_WHO_MAY_CONFIRM_FOUNDER).toSet()
         val devices = mutableMapOf<DeviceId, DeviceState>()
         val stewards = mutableMapOf<MemberId, Int>()
         val stewardVotes = mutableListOf<Triple<StewardChange, String, StewardVote>>()
@@ -359,6 +368,8 @@ class CircleFold(
                 return "the wrap's commitment is not the epoch's commitment"
             }
             wrappedTo.getOrPut(terms.epoch) { mutableSetOf() } += terms.device
+            val approvedMember = target.registration.member
+            if (approvedMember != founder && sender.member in stewards && approvedMember !in approved) approved += approvedMember
             val mine = me?.takeIf { it.device == target.registration.device }?.boxKeys ?: return null
             return when (val key = CircleKeys.unwrap(cipher, mine, circle, terms.epoch, terms.wrapped)) {
                 is Parsed.Ok -> {

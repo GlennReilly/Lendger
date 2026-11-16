@@ -1646,6 +1646,40 @@ class CircleAppEndToEndTest {
     }
 
     @Test
+    fun oneOfTheFirstThreeMembersConfirmsTheFounderAtLevelOneAndTheFourthCannot() = apiTest {
+        val transport = HttpTransport { method, path, body, token ->
+            api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }
+        }
+        val crypto = JvmCrypto()
+        val alice = browser(transport, crypto)
+        alice.app.open(); alice.app.startCircle(PASSPHRASE); alice.app.syncOnce()
+        assertEquals(NameResult.Saved, alice.app.setMyName("Alice Smith"))
+        suspend fun admitted(name: String): Browser {
+            val link = assertNotNull(alice.app.makeInvite()); alice.app.syncOnce()
+            val member = browser(transport, crypto)
+            member.app.open(); member.app.join(link, PASSPHRASE); member.app.syncOnce(); alice.app.syncOnce()
+            alice.app.admit(home(alice.app).waiting.single().device); alice.app.syncOnce(); member.app.syncOnce()
+            assertEquals(NameResult.Saved, member.app.setMyName(name))
+            return member
+        }
+        val members = listOf(admitted("Bea Lee"), admitted("Carol Ng"), admitted("Dave Roe"), admitted("Erin Fox"))
+        repeat(2) { (listOf(alice) + members).forEach { it.app.syncOnce() } }
+        val aliceId = home(alice.app).me
+        val (bea, _, _, erin) = members
+        assertFalse(home(alice.app).names.getValue(aliceId).confirmed)
+        assertTrue(home(bea.app).people.single { it.member == aliceId }.canConfirmName, "a first member at Level 1 may confirm the founder")
+        assertFalse(home(erin.app).people.single { it.member == aliceId }.canConfirmName, "the fourth member may not")
+        assertEquals(
+            NameResult.Refused("Only a member at Level 2 or above, a steward, or one of the first 3 members whose access was approved can confirm the founder's identity."),
+            erin.app.confirmName(aliceId),
+        )
+        assertEquals(NameResult.Saved, bea.app.confirmName(aliceId))
+        repeat(2) { (listOf(alice) + members).forEach { it.app.syncOnce() } }
+        assertTrue(home(alice.app).names.getValue(aliceId).confirmed)
+        assertFalse(home(bea.app).people.single { it.member == home(erin.app).me }.canConfirmName, "a first member still needs Level 2 to confirm anyone else")
+    }
+
+    @Test
     fun namesAreSetConfirmedInPersonClearedByAChangeAndNeverReachTheServerInTheClear() = apiTest {
         val transport = HttpTransport { method, path, body, token ->
             api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }

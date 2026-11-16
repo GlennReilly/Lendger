@@ -11,6 +11,12 @@ const val MAX_DISPLAY_NAME_CODE_POINTS = 40
 /** A name counts as confirmed once this many current members confirmed it; a circle setting may replace it later (ADR 0068). */
 const val NAME_CONFIRMATIONS_NEEDED = 1
 
+/**
+ * How many of a circle's first members (by the log order of their access approval, the founder excluded) may confirm
+ * the founder's identity at any level; nobody else could, since the founder has no one above them (ADR 0090).
+ */
+const val FIRST_MEMBERS_WHO_MAY_CONFIRM_FOUNDER = 3
+
 /** A name made only of hex digits (and spaces) this long or longer looks like a member id or a fingerprint, so it is refused. */
 const val ID_LIKE_HEX_DIGITS = 8
 
