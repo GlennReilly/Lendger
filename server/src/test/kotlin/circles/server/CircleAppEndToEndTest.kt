@@ -20,6 +20,7 @@ import circles.keys.RecoveryParse
 import circles.app.RemoveResult
 import circles.app.StewardResult
 import circles.event.DeviceIdentity
+import circles.event.EventAuthor
 import circles.keys.SeedWrapping
 import circles.keys.UnwrapResult
 import circles.sync.fold
@@ -1893,5 +1894,54 @@ class CircleAppEndToEndTest {
         // Names, notes and reasons are in sealed events only.
         val dump = server.rows("SELECT public, encrypted FROM events").joinToString { row -> row.joinToString { (it as? ByteArray)?.decodeToString().orEmpty() } }
         assertFalse("Toys" in dump || "Camping" in dump || "toy library" in dump || "Games already" in dump)
+    }
+
+    /** The device identity held in [browser], as someone who took the device (and knew the passphrase) would have it. */
+    private suspend fun identityOf(browser: Browser, crypto: JvmCrypto): DeviceIdentity {
+        val stored = assertNotNull(browser.store.load())
+        val seed = (SeedWrapping.unwrapWithPassphrase(testCipher, JvmPasswordHasher(), stored.wrapped, stored.deviceId, PASSPHRASE) as UnwrapResult.Opened).seed
+        return DeviceIdentity.fromSeed(crypto, testCipher, seed, stored.memberId, stored.deviceId)
+    }
+
+    @Test
+    fun aMemberWhoIsNotAStewardCannotApproveANewcomerEvenWithAHandBuiltWrap() = apiTest {
+        val transport = HttpTransport { method, path, body, token ->
+            api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }
+        }
+        val crypto = JvmCrypto()
+        val alice = browser(transport, crypto)
+        alice.app.open(); alice.app.startCircle(PASSPHRASE); alice.app.syncOnce()
+        suspend fun arrive(): Browser {
+            val link = assertNotNull(alice.app.makeInvite()); alice.app.syncOnce()
+            val member = browser(transport, crypto)
+            member.app.open(); member.app.join(link, PASSPHRASE); member.app.syncOnce(); alice.app.syncOnce()
+            return member
+        }
+        val bea = arrive()
+        assertTrue(alice.app.admit(home(alice.app).waiting.single().device)); alice.app.syncOnce(); bea.app.syncOnce()
+        assertTrue(home(bea.app).canRead)
+        val carol = arrive()
+        bea.app.syncOnce()
+        val carolDevice = home(alice.app).waiting.single().device
+        assertFalse(bea.app.admit(carolDevice), "the app offers approval only to stewards")
+
+        // A modified client on Bea's device builds the wrap anyway: the server refuses it (ADR 0093).
+        val circle = home(alice.app).circle
+        val beaIdentity = identityOf(bea, crypto)
+        val view = bea.replica.fold(circle, crypto, testCipher, beaIdentity)
+        val carolRegistration = view.devices.getValue(carolDevice).registration
+        val rogue = EventAuthor(crypto, beaIdentity, testCipher, firstCounter = 1_000_000)
+            .keyWrap(circle, carolRegistration, view.currentEpoch, view.keys[view.currentEpoch]!!, TODAY)
+        val outcome = assertIs<circles.sync.ApiOutcome.Ok<List<circles.api.PushResult>>>(HttpSyncApi(transport, crypto, beaIdentity).push(circle, listOf(rogue)))
+        val result = outcome.value.single()
+        assertEquals(circles.api.PushStatus.REJECTED, result.status)
+        assertEquals(circles.event.RejectionCode.NOT_STEWARD.wire, result.reason)
+        carol.app.syncOnce()
+        assertFalse(home(carol.app).canRead, "the newcomer did not get the key")
+
+        // The steward's approval still works, and nobody's own changes were refused.
+        assertTrue(alice.app.admit(carolDevice))
+        listOf(alice, bea, carol).forEach { assertEquals(0, assertNotNull(it.app.syncOnce()).refused) }
+        assertTrue(home(carol.app).canRead)
     }
 }

@@ -19,6 +19,7 @@ import circles.event.StewardRules
 import circles.event.Rejection
 import circles.event.RejectionCode
 import circles.event.joinProofMessage
+import circles.event.ANOTHER_MEMBERS_WRAP_REASON
 
 /** The outcome of judging one event: remember these things, or refuse with a reason. */
 sealed interface Decision {
@@ -129,6 +130,10 @@ class EventRules(
         val target = directory.device(terms.device)
         if (target == null || target.circle != envelope.circle) return reject(RejectionCode.UNKNOWN_DEVICE, "the target device is not in this circle")
         if (target.isRevoked) return reject(RejectionCode.DEVICE_REVOKED, "the target device has been revoked")
+        // Approving access is a steward's act (ADR 0093): the same rule as the client fold.
+        if (target.member != sender.member && !directory.isSteward(envelope.circle, sender.member)) {
+            return reject(RejectionCode.NOT_STEWARD, ANOTHER_MEMBERS_WRAP_REASON)
+        }
         val current = directory.currentEpoch(envelope.circle)
         return when {
             current == 0 -> {

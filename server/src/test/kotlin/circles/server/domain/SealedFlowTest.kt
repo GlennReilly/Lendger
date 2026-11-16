@@ -179,8 +179,36 @@ class SealedFlowTest {
         assertRejected(RejectionCode.NOT_STEWARD, push(bea.author.keyWrap(circle, bea.identity.registration, FIRST_EPOCH, circleKey, TODAY)).single())
         startKeys()
         assertRejected(RejectionCode.NOT_STEWARD, push(bea.author.keyRotate(circle, 2, TODAY)).single())
-        // Once epoch 1 exists, any member device may pass it on.
-        accepted(push(bea.author.keyWrap(circle, founder.identity.registration, FIRST_EPOCH, circleKey, TODAY)).single())
+        // Once epoch 1 exists, a plain member may pass it on only to their own devices (ADR 0093).
+        assertRejected(RejectionCode.NOT_STEWARD, push(bea.author.keyWrap(circle, founder.identity.registration, FIRST_EPOCH, circleKey, TODAY)).single())
+        val phone = DeviceIdentity.generate(crypto, cipher, bea.identity.member)
+        accepted(push(bea.author.deviceAdd(circle, phone, TODAY)).single())
+        accepted(push(bea.author.keyWrap(circle, phone.registration, FIRST_EPOCH, circleKey, TODAY)).single())
+    }
+
+    @Test
+    fun onlyAStewardMayGiveAnotherMembersDeviceTheKey() {
+        create()
+        startKeys()
+        val first = InviteKey(crypto.generateSigningKeyPair())
+        val firstInvite = founder.author.invite(circle, first, TODAY + 30, 1, TODAY)
+        accepted(push(firstInvite).single())
+        val bea = member()
+        join(firstInvite, first, bea)
+        accepted(push(founder.author.keyWrap(circle, bea.identity.registration, FIRST_EPOCH, circleKey, TODAY)).single())
+        val second = InviteKey(crypto.generateSigningKeyPair())
+        val secondInvite = founder.author.invite(circle, second, TODAY + 30, 1, TODAY)
+        accepted(push(secondInvite).single())
+        val carol = member()
+        join(secondInvite, second, carol)
+        // Bea is a member with the key, not a steward: her wrap to the newcomer is refused with a named code.
+        val result = push(bea.author.keyWrap(circle, carol.identity.registration, FIRST_EPOCH, circleKey, TODAY)).single()
+        assertRejected(RejectionCode.NOT_STEWARD, result)
+        assertEquals(circles.event.ANOTHER_MEMBERS_WRAP_REASON, result.detail)
+        // The steward's wrap is accepted, and so is a rotation with a wrap to every member's device.
+        accepted(push(founder.author.keyWrap(circle, carol.identity.registration, FIRST_EPOCH, circleKey, TODAY)).single())
+        val everyone = listOf(founder, bea, carol).map { it.identity.registration }
+        push(*founder.author.rotateKeys(circle, 2, everyone, TODAY).toTypedArray()).forEach(::accepted)
     }
 
     @Test

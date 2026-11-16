@@ -61,6 +61,9 @@ data class PendingStewardVote(val change: StewardChange, val subject: String, va
 /** Why a steward.add is refused for a member nobody has confirmed (ADR 0079). The app words it with the member's name. */
 const val IDENTITY_NOT_CONFIRMED_REASON = "The member's identity has not been confirmed yet, so they cannot become a steward."
 
+/** Why a `key.wrap` from a member who is not a steward, to another member's device, is refused (ADR 0093); server and fold share it. */
+const val ANOTHER_MEMBERS_WRAP_REASON = "only a steward may give another member's device the circle key"
+
 /** How many times the fold repeats to settle who counts as a confirmer and who as a steward (ADR 0079). */
 private const val MAX_IDENTITY_ROUNDS = 6
 
@@ -357,6 +360,8 @@ class CircleFold(
             val terms = (CircleKeys.keyWrap(e.public) as? Parsed.Ok)?.value ?: return "bad key.wrap"
             if (terms.epoch != e.epoch) return "public epoch differs from the envelope epoch"
             val target = devices[terms.device]?.takeIf { !it.revoked } ?: return "target device is unknown or revoked"
+            // Approving access is a steward's act: only a steward may give another member's device the key (ADR 0093).
+            if (target.registration.member != sender.member && sender.member !in stewards) return ANOTHER_MEMBERS_WRAP_REASON
             if (epoch == 0) {
                 if (terms.epoch != FIRST_EPOCH || sender.member !in stewards) return "the first key must be epoch $FIRST_EPOCH from a steward"
                 val hash = terms.keyHash ?: return "the first key must carry a key commitment"

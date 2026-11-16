@@ -370,8 +370,8 @@ abstract class CircleFoldContract {
         w.joinCarol()
         val hostileKey = KeyRing.newCircleKey(w.crypto)
         val carol = w.carol
-        // Bea, a plain member who holds the key, wraps a different key to carol before the steward does.
-        val bad = w.bea.keyWrap(w.circle, carol.identity.registration, FIRST_EPOCH, hostileKey, day)
+        // A steward's faulty device wraps a different key (no commitment of its own) to carol before the honest wrap.
+        val bad = w.founder.keyWrap(w.circle, carol.identity.registration, FIRST_EPOCH, hostileKey, day)
         val view1 = w.fold(carol, w.log + bad)
         assertEquals(null, view1.keys[FIRST_EPOCH], "carol does not take a key that fails the commitment")
         assertTrue(view1.rejected.single().reason.contains("does not match the epoch's commitment"))
@@ -392,5 +392,66 @@ abstract class CircleFoldContract {
         assertEquals(emptyList(), w.fold(w.carol, w.log + same).rejected)
         val other = w.founder.keyWrap(w.circle, w.carol.identity.registration, FIRST_EPOCH, KeyRing.newCircleKey(w.crypto), day, commit = true)
         assertTrue(w.fold(w.carol, w.log + other).rejected.single().reason.contains("not the epoch's commitment"))
+    }
+
+    @Test
+    fun aMemberWhoIsNotAStewardCannotGiveAnotherMembersDeviceTheKey() = runTest {
+        val w = world()
+        w.start()
+        w.joinCarol()
+        // Bea holds the key but is no steward: her wrap to carol is refused and carol stays without the key (ADR 0093).
+        val byBea = w.bea.keyWrap(w.circle, w.carol.identity.registration, FIRST_EPOCH, w.key1, day)
+        val refused = w.fold(w.carol, w.log + byBea)
+        assertEquals(ANOTHER_MEMBERS_WRAP_REASON, refused.rejected.single().reason)
+        assertEquals(null, refused.keys[FIRST_EPOCH])
+        // The same wrap from the steward approves her access.
+        val byFounder = w.founder.keyWrap(w.circle, w.carol.identity.registration, FIRST_EPOCH, w.key1, day)
+        val approved = w.fold(w.carol, w.log + byFounder)
+        assertEquals(emptyList(), approved.rejected)
+        assertEquals(w.key1, approved.keys[FIRST_EPOCH])
+    }
+
+    @Test
+    fun aMemberWhoIsNotAStewardMayStillGiveTheirOwnNewDeviceTheKey() = runTest {
+        val w = world()
+        w.start()
+        val phone = EventAuthor(w.crypto, DeviceIdentity.generate(w.crypto, w.cipher, w.bea.identity.member), w.cipher)
+        w.log += w.bea.deviceAdd(w.circle, phone.identity, day)
+        w.log += w.bea.keyWrap(w.circle, phone.identity.registration, FIRST_EPOCH, w.key1, day)
+        val view = w.fold(phone)
+        assertEquals(emptyList(), view.rejected)
+        assertEquals(w.key1, view.keys[FIRST_EPOCH])
+    }
+
+    @Test
+    fun theStewardRuleIsJudgedAtTheWrapsPlaceInTheLog() = runTest {
+        val w = world()
+        w.start(StewardSettings(quorum = 1))
+        w.joinCarol()
+        w.log += w.founder.stewardAdd(w.circle, w.bea.identity.member, day)
+        val whileSteward = w.bea.keyWrap(w.circle, w.carol.identity.registration, FIRST_EPOCH, w.key1, day)
+        w.log += whileSteward
+        w.log += w.bea.stewardRemove(w.circle, w.bea.identity.member, day + 1) // bea steps down
+        val afterSteppingDown = w.bea.keyWrap(w.circle, w.carol.identity.registration, FIRST_EPOCH, w.key1, day + 1)
+        val view = w.fold(w.carol, w.log + afterSteppingDown)
+        assertEquals(listOf(afterSteppingDown.eventId(w.crypto)), view.rejected.map { it.id })
+        assertEquals(ANOTHER_MEMBERS_WRAP_REASON, view.rejected.single().reason)
+        assertEquals(w.key1, view.keys[FIRST_EPOCH], "the wrap she sent while a steward still counts")
+    }
+
+    @Test
+    fun theWrapsThatFollowAStewardsRotationReachEveryMember() = runTest {
+        val w = world()
+        w.start()
+        w.joinCarol()
+        w.log += w.founder.keyWrap(w.circle, w.carol.identity.registration, FIRST_EPOCH, w.key1, day)
+        val everyone = listOf(w.founder, w.bea, w.carol).map { it.identity.registration }
+        w.log += w.founder.rotateKeys(w.circle, 2, everyone, day)
+        for (who in listOf(w.founder, w.bea, w.carol)) {
+            val view = w.fold(who)
+            assertEquals(emptyList(), view.rejected)
+            assertEquals(2, view.currentEpoch)
+            assertTrue(view.keys[2] != null, "member ${who.identity.member} holds the new key")
+        }
     }
 }
