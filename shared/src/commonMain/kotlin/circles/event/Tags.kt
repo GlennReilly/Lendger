@@ -23,6 +23,8 @@ data class PendingTag(val change: TagChange, val voters: Set<circles.policy.Memb
 
 const val TAG_TOO_MANY_PER_ITEM = "An item can have at most $MAX_TAGS_PER_ITEM categories."
 const val TAG_NAME_TAKEN = "A category with that name already exists."
+/** ADR 0086: a retired tag id is never reused, not even under a new name. The fold keeps retired tags, so an ADD can see them. */
+const val TAG_RETIRED_ID = "That category has been retired and cannot be added again. Add a new category instead."
 const val TAG_LIMIT_REACHED = "The circle already has $MAX_LIVE_TAGS categories. Retire one first."
 
 /** The rules for a tag's name (ADR 0086): 1 to 24 characters, the display-name text rules, no leading, trailing or doubled spaces. */

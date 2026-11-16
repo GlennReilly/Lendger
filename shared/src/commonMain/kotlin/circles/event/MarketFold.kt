@@ -481,6 +481,7 @@ internal class MarketFold(
         fun taken() = tags.values.any { !it.retired && it.tag != v.tag && NameKey.of(it.name) == key }
         return when (v.op) {
             TagOp.ADD -> v.name?.let { TagNames.problem(it) } ?: when {
+                current?.retired == true -> TAG_RETIRED_ID
                 current != null -> "That category is already in the list."
                 tags.values.count { !it.retired } >= MAX_LIVE_TAGS -> TAG_LIMIT_REACHED
                 taken() -> TAG_NAME_TAKEN
@@ -527,6 +528,7 @@ internal class MarketFold(
     private fun suggestTag(author: MemberId, v: TagSuggest, day: Int): String? {
         if (author !in members()) return "Only a member of the circle can suggest a category."
         if (suggestions.containsKey(v.tag) || tags.containsKey(v.tag)) return "That suggestion has already been recorded."
+        if (tagProposals.keys.any { it.tag == v.tag }) return "That category's id is already used by a steward's proposal."
         TagNames.problem(v.name)?.let { return it }
         val key = NameKey.of(v.name)
         if (tags.values.any { !it.retired && NameKey.of(it.name) == key }) return TAG_NAME_TAKEN

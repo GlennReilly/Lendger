@@ -1020,6 +1020,46 @@ abstract class MarketContract {
     }
 
     @Test
+    fun aCategoryIdIsNeverUsedTwiceByAnAddOrASuggestion() = runTest {
+        val w = World(newCrypto(), newCipher())
+        w.start(StewardSettings(quorum = 2))
+        w.log += w.founder.stewardAdd(w.circle, w.bea.identity.member, DAY)
+        fun reason(e: Envelope) = w.reasons(listOf(e)).single()
+        fun bothAgree(change: TagChange, day: Int) {
+            w.log += w.founder.tagChange(w.circle, day, change)
+            w.log += w.bea.tagChange(w.circle, day, change)
+        }
+        val day = DAY + DEFAULT_STEWARD_COOL_OFF_DAYS
+        val (kitchen, _) = w.tagAdd(w.founder, "Kitchen", day = day)
+        val (garden, _) = w.tagAdd(w.founder, "Garden", day = day)
+        bothAgree(kitchen, day)
+        bothAgree(garden, day)
+        bothAgree(TagChange(kitchen.tag, TagOp.RETIRE, null), day + 1)
+        assertEquals(emptyList(), w.foldAs(w.founder).rejected)
+        // ADD with a retired id (ADR 0086: a retired id is never reused), even under a new name, and with a live id.
+        val retiredAgain = "That category has been retired and cannot be added again. Add a new category instead."
+        assertEquals(retiredAgain, reason(w.founder.tagChange(w.circle, day + 2, TagChange(kitchen.tag, TagOp.ADD, "Kitchen"))))
+        assertEquals(retiredAgain, reason(w.founder.tagChange(w.circle, day + 2, TagChange(kitchen.tag, TagOp.ADD, "Cooking"))))
+        assertEquals("That category is already in the list.", reason(w.founder.tagChange(w.circle, day + 2, TagChange(garden.tag, TagOp.ADD, "Yard"))))
+        // A suggestion cannot take a retired id, a live id, or the id of a declined suggestion (ADR 0087).
+        val recorded = "That suggestion has already been recorded."
+        assertEquals(recorded, reason(w.suggest(w.carol, "Cooking", day + 2, id = kitchen.tag).second))
+        assertEquals(recorded, reason(w.suggest(w.carol, "Yard", day + 2, id = garden.tag).second))
+        val (toys, toysEvent) = w.suggest(w.carol, "Toys", day + 2)
+        w.log += toysEvent
+        w.log += w.founder.tagDecline(w.circle, day + 3, TagDecline(toys.tag, "Toys are covered by Games"))
+        assertEquals(emptyList(), w.foldAs(w.founder).rejected)
+        assertEquals(recorded, reason(w.suggest(w.carol, "Games", day + 4, id = toys.tag).second))
+        // Nor the id of a steward's ADD that is still waiting for votes.
+        val (tools, toolsVote) = w.tagAdd(w.founder, "Tools", day = day + 4)
+        w.log += toolsVote
+        assertEquals(
+            "That category's id is already used by a steward's proposal.",
+            reason(w.suggest(w.carol, "Hardware", day + 4, id = tools.tag).second),
+        )
+    }
+
+    @Test
     fun aSuggestionLapsesAfterThirtyDaysAndCannotBeDeclinedThen() = runTest {
         val w = World(newCrypto(), newCipher())
         w.start(StewardSettings(quorum = 1))
