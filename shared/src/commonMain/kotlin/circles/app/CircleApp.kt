@@ -1893,7 +1893,7 @@ class CircleApp(
 
     private fun canResolve(loan: circles.event.LoanState, me: MemberId, stewards: Set<MemberId>, day: Int): Boolean {
         val dispute = loan.dispute ?: return false
-        return dispute.outcome == null && me in stewards && me != loan.owner && me != loan.borrower && day - dispute.day < DAMAGE_CLAIM_DAYS
+        return dispute.outcome == null && me in stewards && me != loan.owner && me != loan.borrower && day < circles.event.disputeClosesDay(dispute.day)
     }
 
     private fun windowProblem(fromDay: Int, toDay: Int, mustStartTodayOrLater: Boolean): LoanResult.BadDates? =
@@ -2062,7 +2062,7 @@ class CircleApp(
                                     it.claim, it.note, it.day,
                                     when {
                                         it.outcome == DisputeOutcome.UPHELD -> DisputeStatus.UPHELD
-                                        it.outcome == DisputeOutcome.DISMISSED || now - it.day >= DAMAGE_CLAIM_DAYS -> DisputeStatus.DISMISSED
+                                        it.outcome == DisputeOutcome.DISMISSED || now >= circles.event.disputeClosesDay(it.day) -> DisputeStatus.DISMISSED
                                         else -> DisputeStatus.PENDING
                                     },
                                 )

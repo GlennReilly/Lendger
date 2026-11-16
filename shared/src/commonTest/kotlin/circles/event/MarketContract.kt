@@ -587,6 +587,34 @@ abstract class MarketContract {
     }
 
     @Test
+    fun aRulingIsAcceptedUntilTheDayBeforeTheDisputeCountsAsDismissedAndRefusedFromThatDay() = runTest {
+        // ADR 0094: the dispute's own day is the first of its 30 days, so the last ruling day is dispute day + 29.
+        val w = world()
+        val loan = w.loanBetweenBeaAndCarol(ReturnOutcome.OK, DAY + 2)
+        val disputed = DAY + 3
+        w.log += w.bea.loanDispute(w.circle, disputed, loan, DisputeClaim.DAMAGE, "cracked handle")
+        val lastDay = disputed + DAMAGE_CLAIM_DAYS - 1
+        assertEquals(disputed + DAMAGE_CLAIM_DAYS, disputeClosesDay(disputed))
+        val onTime = w.founder.loanResolve(w.circle, lastDay, loan, DisputeOutcome.UPHELD)
+        val inTime = w.foldAs(w.founder, w.log + onTime)
+        assertEquals(emptyList(), inTime.rejected, "a ruling on the 30th day still counts")
+        assertEquals(DisputeOutcome.UPHELD, inTime.market.loans.getValue(loan).dispute?.outcome)
+
+        val late = w.founder.loanResolve(w.circle, lastDay + 1, loan, DisputeOutcome.UPHELD)
+        val afterwards = w.foldAs(w.founder, w.log + late)
+        val reason = afterwards.rejected.single { it.id == late.eventId(w.crypto) }.reason
+        assertEquals("The time to rule on this dispute ended on ${circles.app.ReasonDates.token(lastDay)}, so it counts as dismissed.", reason)
+        val state = afterwards.market.loans.getValue(loan)
+        assertEquals(null, state.dispute?.outcome, "the late ruling changes nothing")
+        // The return counts as the borrower reported it from that day, and no incident is recorded.
+        val kinds = StandingRules.eventsFrom(listOf(state), w.circle, lastDay + 1).map { it.member to it.kind }.toSet()
+        assertTrue(w.carol.identity.member to circles.policy.EventKind.BORROWED_AND_RETURNED_OK in kinds, kinds.toString())
+        assertTrue(kinds.none { it.second == circles.policy.EventKind.DAMAGED_OR_LOST_UNREPORTED })
+        val muchLater = w.founder.loanResolve(w.circle, lastDay + 100, loan, DisputeOutcome.DISMISSED)
+        assertTrue(w.foldAs(w.founder, w.log + muchLater).rejected.single().reason.contains("counts as dismissed"))
+    }
+
+    @Test
     fun aStewardWhoIsAPartyCannotResolveTheirOwnDispute() = runTest {
         val w = World(newCrypto(), newCipher())
         w.start()

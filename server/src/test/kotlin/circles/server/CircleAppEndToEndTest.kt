@@ -1944,4 +1944,66 @@ class CircleAppEndToEndTest {
         listOf(alice, bea, carol).forEach { assertEquals(0, assertNotNull(it.app.syncOnce()).refused) }
         assertTrue(home(carol.app).canRead)
     }
+
+    @Test
+    fun aDisputeRulingIsOfferedUntilItsLastDayAndARulingAfterThatIsRefused() = apiTest {
+        val transport = HttpTransport { method, path, body, token ->
+            api.raw(method, path, body, token).let { HttpReply(it.status, it.body, it.retryAfter) }
+        }
+        val crypto = JvmCrypto()
+        var day = TODAY
+        val alice = browser(transport, crypto, today = { day })
+        alice.app.open(); alice.app.startCircle(PASSPHRASE); alice.app.syncOnce()
+        suspend fun join(): Browser {
+            val link = assertNotNull(alice.app.makeInvite()); alice.app.syncOnce()
+            val member = browser(transport, crypto, today = { day })
+            member.app.open(); member.app.join(link, PASSPHRASE); member.app.syncOnce(); alice.app.syncOnce()
+            alice.app.admit(home(alice.app).waiting.single().device); alice.app.syncOnce(); member.app.syncOnce()
+            return member
+        }
+        val bea = join()
+        val carol = join()
+        fun sync() = runBlocking { repeat(2) { listOf(alice, bea, carol).forEach { assertEquals(0, assertNotNull(it.app.syncOnce()).refused) } } }
+        val item = (bea.app.addItem("Wheelbarrow", ItemClass.EVERYDAY, "") as ItemResult.Saved).item
+        sync()
+        val loan = (carol.app.requestLoan(item, TODAY, TODAY + 2, "") as LoanResult.Done).loan
+        sync()
+        assertIs<LoanResult.Done>(bea.app.respondToLoan(loan, approve = true, note = "")); sync()
+        assertIs<LoanResult.Done>(bea.app.confirmHandover(loan)); assertIs<LoanResult.Done>(carol.app.confirmHandover(loan)); sync()
+        assertIs<LoanResult.Done>(carol.app.returnLoan(loan, ReturnOutcome.OK)); sync()
+        assertIs<LoanResult.Done>(bea.app.disputeReturn(loan, DisputeClaim.DAMAGE, "the wheel wobbles")); sync()
+
+        fun advance(days: Int) {
+            day += days; server.clock.advanceSeconds(days.toLong() * 24 * 60 * 60)
+        }
+        // The dispute's own day is the first of its 30 days: on the 30th the steward is still offered the ruling.
+        advance(circles.event.DAMAGE_CLAIM_DAYS - 1)
+        sync()
+        assertTrue(home(alice.app).loans.single { it.loan == loan }.canResolve)
+        assertEquals(DisputeStatus.PENDING, home(carol.app).loans.single { it.loan == loan }.dispute!!.status)
+        // The next day it counts as dismissed, and the app no longer offers a ruling.
+        advance(1)
+        sync()
+        assertTrue(home(alice.app).loans.none { it.loan == loan }, "a steward who is not a party no longer sees it among disputes to resolve")
+        assertEquals(LoanResult.NotAllowed, alice.app.resolveDispute(loan, DisputeOutcome.UPHELD))
+        assertEquals(DisputeStatus.DISMISSED, home(carol.app).loans.single { it.loan == loan }.dispute!!.status)
+        val pointsBefore = home(carol.app).standing!!.points
+
+        // A modified client sends the late ruling anyway: the server cannot read it, but every member's fold refuses it (ADR 0094).
+        val circle = home(alice.app).circle
+        val aliceIdentity = identityOf(alice, crypto)
+        val view = alice.replica.fold(circle, crypto, testCipher, aliceIdentity)
+        val rogue = EventAuthor(crypto, aliceIdentity, testCipher, firstCounter = 1_000_000).also { it.keyRing = view.keys }
+            .loanResolve(circle, day, loan, DisputeOutcome.UPHELD)
+        val outcome = assertIs<circles.sync.ApiOutcome.Ok<List<circles.api.PushResult>>>(HttpSyncApi(transport, crypto, aliceIdentity).push(circle, listOf(rogue)))
+        assertEquals(circles.api.PushStatus.ACCEPTED, outcome.value.single().status, "the server keeps sealed events opaque")
+        sync()
+        for (who in listOf(bea, carol)) {
+            assertEquals(DisputeStatus.DISMISSED, home(who.app).loans.single { it.loan == loan }.dispute!!.status)
+        }
+        assertEquals(pointsBefore, home(carol.app).standing!!.points, "no incident is recorded for the borrower")
+        val folded = carol.replica.fold(circle, crypto, testCipher, identityOf(carol, crypto))
+        val reason = folded.rejected.single { it.id == rogue.eventId(crypto) }.reason
+        assertTrue(reason.startsWith("The time to rule on this dispute ended on"), reason)
+    }
 }

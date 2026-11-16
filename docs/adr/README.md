@@ -97,6 +97,7 @@ One short file per decision that is hard to reverse, changes a rule, picks a tec
 | [0091](0091-unconfirmed-name-decoration.md) | The note after an unconfirmed name reads "(unconfirmed)" | Accepted |
 | [0092](0092-unconfirmed-note-is-a-link.md) | The "(unconfirmed)" note is a link to where the identity is confirmed | Accepted |
 | [0093](0093-only-a-steward-gives-another-members-device-the-key.md) | Only a steward can give another member's device the circle key | Accepted |
+| [0094](0094-a-late-dispute-ruling-is-refused.md) | A dispute ruling after the 30 days is refused | Accepted |
 
 ## Open decisions still to record
 

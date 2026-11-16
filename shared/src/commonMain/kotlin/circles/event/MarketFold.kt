@@ -714,6 +714,9 @@ internal class MarketFold(
         if (dispute.outcome != null) return "This dispute has already been resolved."
         if (author !in stewardsAt(id)) return "Only a steward can resolve a dispute."
         if (author == loan.owner || author == loan.borrower) return "A member who is part of the loan cannot resolve its dispute."
+        // ADR 0094: from the day it counts as dismissed (ADR 0043 B1) a ruling can no longer replace that.
+        val closes = disputeClosesDay(dispute.day)
+        if (day >= closes) return "The time to rule on this dispute ended on ${circles.app.ReasonDates.token(closes - 1)}, so it counts as dismissed."
         loans[v.loan] = loan.copy(dispute = dispute.copy(outcome = v.outcome, resolvedDay = maxOf(day, dispute.day)))
         return null
     }

@@ -22,6 +22,12 @@ const val PROMPT_CONFIRM_DAYS = 3
 /** How long after a return an owner may dispute it, and how long a dispute waits for a steward (ADR 0043). */
 const val DAMAGE_CLAIM_DAYS = 30
 
+/**
+ * The first day an unresolved dispute made on [disputeDay] counts as dismissed (ADR 0043 B1). A steward may rule on it
+ * only before this day; a ruling dated on or after it is refused (ADR 0094).
+ */
+fun disputeClosesDay(disputeDay: Int): Int = disputeDay + DAMAGE_CLAIM_DAYS
+
 /** Stewards count as at least this tier for every decision (ADR 0042, A1). */
 val STEWARD_TIER_FLOOR: Tier = Tier.TRUSTED
 
@@ -55,7 +61,7 @@ object StandingRules {
                 dispute == null -> loan.confirmedDay ?: (returned + RETURN_GRACE_DAYS)
                 dispute.outcome == DisputeOutcome.DISMISSED -> maxOf(loan.confirmedDay ?: (returned + RETURN_GRACE_DAYS), dispute.resolvedDay ?: dispute.day)
                 dispute.outcome == DisputeOutcome.UPHELD -> null
-                else -> dispute.day + DAMAGE_CLAIM_DAYS // unresolved: dismissed by default after the claim window
+                else -> disputeClosesDay(dispute.day) // unresolved: dismissed by default after the claim window
             }
             if (dispute != null && dispute.outcome == DisputeOutcome.UPHELD) {
                 val resolved = dispute.resolvedDay ?: continue
