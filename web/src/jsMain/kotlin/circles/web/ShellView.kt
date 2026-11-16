@@ -311,7 +311,7 @@ private const val ID_INVITE_OUTPUT = "invite-output"
 /** How a member without a name shows until they choose one (ADR 0068). */
 const val UNNAMED_MEMBER = "New member (waiting for a name)"
 /** Whether someone checked in person that this member is who they say (ADR 0068, worded per ADR 0071). */
-const val NAME_NOT_CONFIRMED = "(identity not confirmed yet)"
+const val NAME_NOT_CONFIRMED = "(unconfirmed)"
 const val FORM_MY_NAME = "name-form"
 const val FORM_RENAME = "rename-form"
 const val ID_NAME_REFUSAL = "name-refusal"
@@ -1988,9 +1988,9 @@ private fun waitingText(on: Boolean): String = if (on) "in the waiting period" e
 
 /** One line per kind of item for the Circle rules list (ADR 0085). */
 private fun classRuleLines(s: circles.event.ConfigSettings): List<String> = listOf(
-    "Everyday items: ${TierText.label(tierOfLevel(s.everydayLevel))}, ${waitingText(s.everydayWaiting)}",
-    "Valuable items: ${TierText.label(tierOfLevel(s.valuableLevel))}, ${waitingText(s.valuableWaiting)}",
-    "High-value items: ${TierText.label(tierOfLevel(s.highValueLevel))}, ${waitingText(s.highValueWaiting)}",
+    "Everyday value class: ${TierText.label(tierOfLevel(s.everydayLevel))}, ${waitingText(s.everydayWaiting)}",
+    "Valuable value class: ${TierText.label(tierOfLevel(s.valuableLevel))}, ${waitingText(s.valuableWaiting)}",
+    "High-value value class: ${TierText.label(tierOfLevel(s.highValueLevel))}, ${waitingText(s.highValueWaiting)}",
 )
 
 private fun classRuleSummary(s: circles.event.ConfigSettings): String =
@@ -2544,7 +2544,7 @@ private fun FlowContent.stewards(home: HomeData) {
         p { +WAITING_PERIOD_NOT_A_PAUSE }
         h3 { +"What each value class needs" }
         ul {
-            li { +"Essential items: ${TierText.label(Tier.NEW)}, always open, never in the waiting period" }
+            li { +"Essential value class: ${TierText.label(Tier.NEW)}, always open, never in the waiting period" }
             for (line in classRuleLines(now)) li { +line }
         }
         p { +"A change applies from the day enough stewards agree. Things decided before then keep the rules they were decided under." }
@@ -2611,9 +2611,9 @@ private fun FlowContent.stewards(home: HomeData) {
                         }
                     }
                     for ((field, label, on) in listOf(
-                        Triple(RULES_WAIT_EVERYDAY, "Everyday items are in the waiting period", now.everydayWaiting),
-                        Triple(RULES_WAIT_VALUABLE, "Valuable items are in the waiting period", now.valuableWaiting),
-                        Triple(RULES_WAIT_HIGH_VALUE, "High-value items are in the waiting period", now.highValueWaiting),
+                        Triple(RULES_WAIT_EVERYDAY, "Everyday value class is in the waiting period", now.everydayWaiting),
+                        Triple(RULES_WAIT_VALUABLE, "Valuable value class is in the waiting period", now.valuableWaiting),
+                        Triple(RULES_WAIT_HIGH_VALUE, "High-value value class is in the waiting period", now.highValueWaiting),
                     )) div {
                         classes = setOf("check-row")
                         input(type = InputType.checkBox, name = field) {
@@ -2625,7 +2625,7 @@ private fun FlowContent.stewards(home: HomeData) {
                             +label
                         }
                     }
-                    p { +"Essential items stay at ${TierText.label(Tier.NEW)} and are never in the waiting period. A value class worth more cannot need a lower level than one worth less." }
+                    p { +"The essential value class stays at ${TierText.label(Tier.NEW)} and is never in the waiting period. A value class worth more cannot need a lower level than one worth less." }
                     formSubmit("Propose these rules", ready = true)
                 }
             }

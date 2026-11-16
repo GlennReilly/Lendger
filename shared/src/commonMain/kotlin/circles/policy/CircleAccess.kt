@@ -150,7 +150,7 @@ data class CircleConfig(
         if (maxCreditedPerCounterpart < 1) add("maxCreditedPerCounterpart must be at least 1")
         if (counterpartWindowDays <= 0) add("counterpartWindowDays must be positive")
         val essential = ruleOf(ItemClass.ESSENTIAL)
-        if (essential.minTier != Tier.NEW || essential.waiting) add("Essential items must stay at Level 1 and outside the waiting period")
+        if (essential.minTier != Tier.NEW || essential.waiting) add("The essential value class must stay at Level 1 and outside the waiting period")
         val order = ItemClass.entries.map { ruleOf(it).minTier }
         if (order.any { it.rank > Tier.TRUSTED.rank } || order.zipWithNext().any { (a, b) -> b.rank < a.rank }) add("item levels must not fall from Essential to High-value, and may not be above Level 3")
     }
@@ -209,11 +209,13 @@ data class Standing(
 /** The one sentence that explains an active waiting period (ADR 0084): shown on My level and among the reasons. */
 fun waitingPeriodSentence(daysLeft: Int, cfg: CircleConfig = CircleConfig(CircleId(""), "")): String =
     "A recent unreported incident means a waiting period of ${if (daysLeft == 1) "1 more day" else "$daysLeft more days"} before you can borrow higher-value items. " +
-        "${unaffectedKindsText(cfg)} are not affected, and your level does not change."
+        "${unaffectedKindsText(cfg)} ${isOrAre(unaffectedKindsText(cfg))} not affected, and your level does not change."
 
 private val KIND_NAMES = listOf(ItemClass.EVERYDAY to "everyday", ItemClass.ESSENTIAL to "essential", ItemClass.VALUABLE to "valuable", ItemClass.HIGH_VALUE to "high-value")
 
-/** The kinds of item the waiting period does not touch in this circle, as "Everyday and essential items" (ADR 0085). */
+private fun isOrAre(classes: String): String = if (classes.endsWith("classes")) "are" else "is"
+
+/** The kinds of item the waiting period does not touch in this circle, as "Everyday and essential value classes" (ADR 0085). */
 fun unaffectedKindsText(cfg: CircleConfig): String {
     val open = KIND_NAMES.filter { !cfg.ruleOf(it.first).waiting }.map { it.second }
     val joined = when (open.size) {
@@ -221,7 +223,7 @@ fun unaffectedKindsText(cfg: CircleConfig): String {
         2 -> "${open[0]} and ${open[1]}"
         else -> open.dropLast(1).joinToString(", ") + " and " + open.last()
     }
-    return joined.replaceFirstChar { it.uppercase() } + " items"
+    return joined.replaceFirstChar { it.uppercase() } + if (open.size == 1) " value class" else " value classes"
 }
 
 /** Said once beside the waiting period: it is automatic, unlike a pause (ADR 0084). */
@@ -415,7 +417,7 @@ object AccessPolicy {
             return AccessDecision.NotYet(
                 standing.reasons + "${item.name} is in a waiting period for ${if (daysLeft == 1) "1 more day" else "$daysLeft more days"} after an unreported incident.",
                 listOf(
-                    "${unaffectedKindsText(circle)} are still open to you.",
+                    "${unaffectedKindsText(circle)} ${isOrAre(unaffectedKindsText(circle))} still open to you.",
                     "The waiting period ends by itself in ${if (daysLeft == 1) "1 day" else "$daysLeft days"}. It is not a ban, and it is not a pause that members voted on."
                 )
             )

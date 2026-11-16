@@ -432,7 +432,7 @@ try {
   ok('an unconfirmed member is not offered as a steward, and one sentence says why');
   await alice.evaluate('location.hash = "#/members"'); await until(alice, 'document.querySelector("[data-action=check-person]") !== null', 'alice back on members');
   await bea.evaluate('location.hash = "#/members"'); await until(bea, 'document.querySelector("[data-action=check-person]") !== null', 'bea members');
-  if (!(await bea.evaluate(has(bea, 'Bea (identity not confirmed yet) (you)') + ' && ' + has(bea, 'Nobody has confirmed your identity yet.')))) throw new Error('bea does not see her own identity as not confirmed yet: ' + await text(bea));
+  if (!(await bea.evaluate(has(bea, 'Bea (unconfirmed) (you)') + ' && ' + has(bea, 'Nobody has confirmed your identity yet.')))) throw new Error('bea does not see her own identity as not confirmed yet: ' + await text(bea));
   await click(bea, 'check-person'); await until(bea, has(bea, 'Checking: ') + ' && document.querySelector("p.fingerprint") !== null', 'bea checks alice');
   if (await bea.evaluate('document.querySelector("[data-action=vouch]") !== null')) throw new Error('a new member is offered Vouch');
   // ADR 0090: one of the first members may confirm the founder at Level 1, so bea is offered Confirm identity for alice only.
@@ -442,7 +442,7 @@ try {
   await bea.evaluate(`document.getElementById("${founderForm}").requestSubmit()`);
   await until(bea, has(bea, 'You confirmed this member\'s identity.'), 'bea confirmed alice');
   ok('a new member (Level 1) who is one of the first members sees the characters and can confirm the founder, but gets no Vouch');
-  await syncUntil(alice, 'location.hash = "#/members"; ' + has(alice, 'Alice Smith') + ' && !' + has(alice, 'Alice Smith (identity not confirmed yet)'), 'alice sees her own identity confirmed');
+  await syncUntil(alice, 'location.hash = "#/members"; ' + has(alice, 'Alice Smith') + ' && !' + has(alice, 'Alice Smith (unconfirmed)'), 'alice sees her own identity confirmed');
   await alice.evaluate('location.hash = "#/members"'); await until(alice, 'document.querySelector("[data-action=check-person]") !== null', 'alice back on members');
   await click(alice, 'check-person'); await until(alice, has(alice, 'Checking: ') + ' && document.querySelector("form[id^=confirm-name-]") !== null', 'alice checks bea');
   if (await alice.evaluate('document.querySelector("[data-action=vouch]") === null')) throw new Error('alice is not offered Vouch on the check page'); ok('alice (a steward) is offered "Vouch for this person" on the check page');
@@ -455,7 +455,7 @@ try {
   ok('"Confirm identity" appears only after "I checked this person\'s identity in person" is ticked');
   await checkAccessibility(alice, 'check identity, confirming');
   await alice.evaluate(`document.getElementById("${confirmForm}").requestSubmit()`);
-  await until(alice, has(alice, 'You confirmed this member\'s identity.') + ' && ' + has(alice, 'Bea') + ' && !' + has(alice, 'Bea (identity not confirmed yet)'), 'alice confirmed bea'); ok('alice confirmed bea\'s identity');
+  await until(alice, has(alice, 'You confirmed this member\'s identity.') + ' && ' + has(alice, 'Bea') + ' && !' + has(alice, 'Bea (unconfirmed)'), 'alice confirmed bea'); ok('alice confirmed bea\'s identity');
   await syncUntil(alice, has(alice, 'Up to date'), 'alice pushed the confirmation');
   await syncUntil(bea, 'location.hash = "#/members"; ' + has(bea, 'Bea (you)') + ' && ' + has(bea, 'Identity confirmed by Alice Smith.'), 'bea sees her identity confirmed'); ok('bea sees her identity confirmed by Alice Smith');
   // Stewards: the lone steward is told the circle needs another, adds Bea, and the rules form waits for all three numbers.
@@ -468,13 +468,13 @@ try {
   if (!(await buttonHidden(alice, 'steward-rules-form'))) throw new Error('rules button visible with three of four'); await setField(alice, 'steward-rules-form', 'recovery-threshold', '0');
   if (await buttonHidden(alice, 'steward-rules-form')) throw new Error('rules button hidden with all four'); ok('the rules button waits for all four numbers');
   // Circle rules per value class (ADR 0085): the defaults are listed, an impossible order is refused in words, a valid change applies at once.
-  await until(alice, has(alice, 'Valuable items: Level 2, in the waiting period') + ' && ' + has(alice, 'Essential items: Level 1, always open, never in the waiting period') + ' && ' + has(alice, 'A waiting period starts by itself after an unreported incident'), 'value-class rules listed');
+  await until(alice, has(alice, 'Valuable value class: Level 2, in the waiting period') + ' && ' + has(alice, 'Essential value class: Level 1, always open, never in the waiting period') + ' && ' + has(alice, 'A waiting period starts by itself after an unreported incident'), 'value-class rules listed');
   await alice.evaluate(`document.getElementById('circle-rules-form').closest('details').open = true`); await checkAccessibility(alice, 'stewards with the circle rules form open');
   await alice.evaluate(`document.getElementById('rules-level-everyday').value = '3'; document.getElementById('circle-rules-form').requestSubmit()`);
   await until(alice, has(alice, 'A value class worth more cannot need a lower level than one worth less.'), 'order refused');
   await until(alice, 'document.querySelector("[aria-busy=true]") === null', 'the first submit has finished');
   await alice.evaluate(`document.getElementById('rules-level-everyday').value = '1'; document.getElementById('rules-level-valuable').value = '1'; document.getElementById('rules-wait-everyday').checked = true; document.getElementById('circle-rules-form').requestSubmit()`);
-  await until(alice, has(alice, 'The new circle rules apply from today.') + ' && ' + has(alice, 'Valuable items: Level 1, in the waiting period') + ' && ' + has(alice, 'Everyday items: Level 1, in the waiting period'), 'value-class rules changed');
+  await until(alice, has(alice, 'The new circle rules apply from today.') + ' && ' + has(alice, 'Valuable value class: Level 1, in the waiting period') + ' && ' + has(alice, 'Everyday value class: Level 1, in the waiting period'), 'value-class rules changed');
   ok('Circle rules: the value-class rules are listed, an out-of-order level is refused in words, and a change applies and is listed');
   // Categories (ADR 0086): the lone steward adds two categories, one is refused as a duplicate, the owner picks one, a fourth pick is refused, and the item shows it.
   await until(alice, has(alice, 'Categories') + ' && document.getElementById("tag-add-form") !== null', 'categories section');
