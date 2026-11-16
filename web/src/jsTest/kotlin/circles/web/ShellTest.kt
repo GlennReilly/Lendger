@@ -384,7 +384,7 @@ class ShellViewTest {
         assertFalse("Key fingerprint" in html)
         assertTrue("choose Check identity on their card" in html)
         assertTrue("""$ATTR_ACTION="$ACTION_CHECK_PERSON" $ATTR_MEMBER="${bea.v}">Check identity<""" in html)
-        assertEquals(1, Regex("""$ATTR_ACTION="$ACTION_CHECK_PERSON"""").findAll(html).count(), "not for myself")
+        assertEquals(2, Regex("""$ATTR_ACTION="$ACTION_CHECK_PERSON"""").findAll(html).count(), "Bea's button and her \"(unconfirmed)\" link (ADR 0092), nothing for myself")
     }
 
     @Test fun theMembersPageOffersAnInviteAndShowsTheMadeLinkReadOnly() {
@@ -1611,11 +1611,22 @@ class NamesViewTest {
         assertFalse(ID_NAME_REFUSAL in render(open(home()).copy(screen = Screen.Settings)))
     }
 
+    @Test fun theUnconfirmedNoteLinksToTheCheckPageForOthersAndToMembersForYourself() {
+        val names = mapOf(me to NameSummary("Alice", false), bea to NameSummary("Bea", false))
+        val html = render(open(home(people = listOf(alice, beaToConfirm), names = names)).copy(screen = Screen.Members))
+        val own = """<a href="#/members" class="name-status unconfirmed" aria-label="$NAME_NOT_CONFIRMED_OWN_LABEL">$NAME_NOT_CONFIRMED</a>"""
+        val other = """<a href="#/members/check" class="name-status unconfirmed" data-action="$ACTION_CHECK_PERSON" data-member="${bea.v}" aria-label="Unconfirmed: check Bea's identity">$NAME_NOT_CONFIRMED</a>"""
+        assertTrue(own in html && other in html, html)
+        assertTrue(html.indexOf(own) != html.indexOf(other), "two links, two accessible names")
+        val confirmed = render(open(home(people = listOf(alice, beaToConfirm), names = mapOf(me to NameSummary("Alice", true), bea to NameSummary("Bea", true)))).copy(screen = Screen.Members))
+        assertFalse("name-status" in confirmed || NAME_NOT_CONFIRMED in confirmed, "a confirmed name has no note and no link")
+    }
+
     @Test fun membersShowNamesWithTheirStateAndTheConfirmFormNeedsTheInPersonTick() {
         val html = render(open(home(people = listOf(alice, beaToConfirm))).copy(screen = Screen.Members))
         assertTrue("""<a href="#/members/person/${me.v}" class="person-name">Alice</a> (you)""" in html)
         assertFalse("identity confirmed" in html, "a confirmed name shows nothing extra")
-        assertTrue("""<a href="#/members/person/${bea.v}" class="person-name">Bea</a> <span class="name-status unconfirmed">$NAME_NOT_CONFIRMED</span>""" in html)
+        assertTrue("""<a href="#/members/person/${bea.v}" class="person-name">Bea</a> <a href="#/members/check" class="name-status unconfirmed" data-action="$ACTION_CHECK_PERSON" data-member="${bea.v}" aria-label="Unconfirmed: check Bea's identity">$NAME_NOT_CONFIRMED</a>""" in html, html)
         assertTrue("""Identity confirmed by <a href="#/members/person/${bea.v}" class="person-name">Bea</a>.""" in html)
         assertTrue("Nobody has confirmed this member's identity yet." in html)
         assertFalse(FORM_CONFIRM_NAME_PREFIX in html, "the form is on the check page, not on the card (ADR 0071)")

@@ -281,7 +281,7 @@ try {
   await alice.evaluate('[...document.querySelectorAll("a.person-name")].find(a => a.textContent === "Bea").click()');
   await until(alice, 'location.hash.startsWith("#/members/person/") && ' + has(alice, 'Check identity in person'), 'the person page from the Members page');
   ok('clicking a name on the Members page opens that member\'s page');
-  { const labels = JSON.parse(await alice.evaluate('JSON.stringify([...document.querySelectorAll("main [data-action=check-person]")].map(b => b.textContent))'));
+  { const labels = JSON.parse(await alice.evaluate('JSON.stringify([...document.querySelectorAll("main button[data-action=check-person]")].map(b => b.textContent))'));
     if (labels[0] !== 'Check identity in person' || !labels.includes('Confirm identity')) throw new Error('person page buttons: ' + JSON.stringify(labels));
     if (await alice.evaluate('document.querySelector("form[id^=confirm-name-]") !== null')) throw new Error('the person page confirms by itself'); }
   ok('the person page offers Check identity in person first, then Confirm identity because alice may confirm, and confirms nothing itself');
@@ -433,6 +433,13 @@ try {
   await alice.evaluate('location.hash = "#/members"'); await until(alice, 'document.querySelector("[data-action=check-person]") !== null', 'alice back on members');
   await bea.evaluate('location.hash = "#/members"'); await until(bea, 'document.querySelector("[data-action=check-person]") !== null', 'bea members');
   if (!(await bea.evaluate(has(bea, 'Bea (unconfirmed) (you)') + ' && ' + has(bea, 'Nobody has confirmed your identity yet.')))) throw new Error('bea does not see her own identity as not confirmed yet: ' + await text(bea));
+  // ADR 0092: each "(unconfirmed)" note is a link with its own accessible name; another member's goes to the check page, one's own to Members.
+  { const labels = await bea.evaluate('JSON.stringify([...document.querySelectorAll("a.name-status")].map(a => [a.textContent, a.getAttribute("aria-label")]))');
+    if (!labels.includes('Unconfirmed: show others who you are') || !labels.includes('Unconfirmed: check Alice') || labels.includes('[[]')) throw new Error('unconfirmed links: ' + labels);
+    await bea.evaluate('[...document.querySelectorAll("a.name-status")].find(a => (a.getAttribute("aria-label") || "").startsWith("Unconfirmed: check")).click()');
+    await until(bea, 'location.hash === "#/members/check" && ' + has(bea, 'Checking: ') + ' && document.querySelector("p.fingerprint") !== null', 'the unconfirmed link opens the check page');
+    ok('"(unconfirmed)" after a name is a link with its own accessible name and opens the Check identity page'); }
+  await bea.evaluate('location.hash = "#/members"'); await until(bea, 'document.querySelector("[data-action=check-person]") !== null', 'bea back on members');
   await click(bea, 'check-person'); await until(bea, has(bea, 'Checking: ') + ' && document.querySelector("p.fingerprint") !== null', 'bea checks alice');
   if (await bea.evaluate('document.querySelector("[data-action=vouch]") !== null')) throw new Error('a new member is offered Vouch');
   // ADR 0090: one of the first members may confirm the founder at Level 1, so bea is offered Confirm identity for alice only.

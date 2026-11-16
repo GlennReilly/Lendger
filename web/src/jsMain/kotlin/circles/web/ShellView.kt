@@ -312,6 +312,9 @@ private const val ID_INVITE_OUTPUT = "invite-output"
 const val UNNAMED_MEMBER = "New member (waiting for a name)"
 /** Whether someone checked in person that this member is who they say (ADR 0068, worded per ADR 0071). */
 const val NAME_NOT_CONFIRMED = "(unconfirmed)"
+/** The accessible names of the "(unconfirmed)" links (ADR 0092); each starts with the visible word. */
+const val NAME_NOT_CONFIRMED_OWN_LABEL = "Unconfirmed: show others who you are"
+fun notConfirmedLabel(name: String): String = "Unconfirmed: check $name's identity"
 const val FORM_MY_NAME = "name-form"
 const val FORM_RENAME = "rename-form"
 const val ID_NAME_REFUSAL = "name-refusal"
@@ -355,9 +358,22 @@ fun FlowOrPhrasingContent.personName(home: HomeData, member: MemberId, showStatu
     // Only the missing confirmation is worth saying; a confirmed name shows nothing extra (ADR 0089).
     if (named != null && showStatus && !named.confirmed) {
         +" "
-        span {
-            classes = setOf("name-status", "unconfirmed")
-            +NAME_NOT_CONFIRMED
+        // ADR 0092: the note is a link to where the identity gets confirmed. The visible text stays "(unconfirmed)"; the
+        // accessible name starts with "Unconfirmed" (so it contains the visible word) and names the person.
+        if (member == home.me) {
+            a(href = Screen.Members.fragment) {
+                classes = setOf("name-status", "unconfirmed")
+                attributes["aria-label"] = NAME_NOT_CONFIRMED_OWN_LABEL
+                +NAME_NOT_CONFIRMED
+            }
+        } else {
+            a(href = Screen.CheckIdentity.fragment) {
+                classes = setOf("name-status", "unconfirmed")
+                attributes[ATTR_ACTION] = ACTION_CHECK_PERSON
+                attributes[ATTR_MEMBER] = member.v
+                attributes["aria-label"] = notConfirmedLabel(text) // plain-name: an aria-label cannot hold a link
+                +NAME_NOT_CONFIRMED
+            }
         }
     }
 }

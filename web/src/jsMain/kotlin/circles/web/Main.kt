@@ -1007,6 +1007,7 @@ private class Page(private val root: HTMLElement, private val scope: CoroutineSc
                     window.location.hash = Screen.EditItem.fragment
                 }
                 ACTION_CHECK_PERSON -> target.getAttribute(ATTR_MEMBER)?.let { member ->
+                    event.preventDefault() // the "(unconfirmed)" note is a link (ADR 0092); the state is set first
                     dispatch(AppAction.CheckPerson(PersonCheck(MemberId(member), target.getAttribute(ATTR_DEVICE)?.let(::DeviceId))))
                     window.location.hash = Screen.CheckIdentity.fragment
                 }
