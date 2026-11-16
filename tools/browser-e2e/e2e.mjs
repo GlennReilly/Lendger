@@ -468,13 +468,13 @@ try {
   if (!(await buttonHidden(alice, 'steward-rules-form'))) throw new Error('rules button visible with three of four'); await setField(alice, 'steward-rules-form', 'recovery-threshold', '0');
   if (await buttonHidden(alice, 'steward-rules-form')) throw new Error('rules button hidden with all four'); ok('the rules button waits for all four numbers');
   // Circle rules per value class (ADR 0085): the defaults are listed, an impossible order is refused in words, a valid change applies at once.
-  await until(alice, has(alice, 'Valuable value class: Level 2, in the waiting period') + ' && ' + has(alice, 'Essential value class: Level 1, always open, never in the waiting period') + ' && ' + has(alice, 'A waiting period starts by itself after an unreported incident'), 'value-class rules listed');
+  await until(alice, has(alice, 'Valuable: Level 2, in the waiting period') + ' && ' + has(alice, 'Essential: Level 1, always open, never in the waiting period') + ' && ' + has(alice, 'A waiting period starts by itself after an unreported incident'), 'value-class rules listed');
   await alice.evaluate(`document.getElementById('circle-rules-form').closest('details').open = true`); await checkAccessibility(alice, 'stewards with the circle rules form open');
   await alice.evaluate(`document.getElementById('rules-level-everyday').value = '3'; document.getElementById('circle-rules-form').requestSubmit()`);
   await until(alice, has(alice, 'A value class worth more cannot need a lower level than one worth less.'), 'order refused');
   await until(alice, 'document.querySelector("[aria-busy=true]") === null', 'the first submit has finished');
   await alice.evaluate(`document.getElementById('rules-level-everyday').value = '1'; document.getElementById('rules-level-valuable').value = '1'; document.getElementById('rules-wait-everyday').checked = true; document.getElementById('circle-rules-form').requestSubmit()`);
-  await until(alice, has(alice, 'The new circle rules apply from today.') + ' && ' + has(alice, 'Valuable value class: Level 1, in the waiting period') + ' && ' + has(alice, 'Everyday value class: Level 1, in the waiting period'), 'value-class rules changed');
+  await until(alice, has(alice, 'The new circle rules apply from today.') + ' && ' + has(alice, 'Valuable: Level 1, in the waiting period') + ' && ' + has(alice, 'Everyday: Level 1, in the waiting period'), 'value-class rules changed');
   ok('Circle rules: the value-class rules are listed, an out-of-order level is refused in words, and a change applies and is listed');
   // Categories (ADR 0086): the lone steward adds two categories, one is refused as a duplicate, the owner picks one, a fourth pick is refused, and the item shows it.
   await until(alice, has(alice, 'Categories') + ' && document.getElementById("tag-add-form") !== null', 'categories section');

@@ -24,7 +24,8 @@ object ImagePolicy {
 
     const val TARGET_PHOTO_BYTES = 400 * 1024
     const val TARGET_THUMBNAIL_BYTES = 40 * 1024
-    const val MAX_PHOTOS_PER_ITEM = 6
+    /** The one photo limit (ADR 0060 B1 chose 3, replacing the 6 of ADR 0028); the item payload reader, the fold and the app use it too. */
+    const val MAX_PHOTOS_PER_ITEM = 3
 
     /** Whether an input may be decoded at all, judged from its size and, once the header is read, its dimensions. */
     sealed interface InputCheck {

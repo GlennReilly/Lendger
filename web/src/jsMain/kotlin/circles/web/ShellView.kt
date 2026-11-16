@@ -1988,9 +1988,9 @@ private fun waitingText(on: Boolean): String = if (on) "in the waiting period" e
 
 /** One line per kind of item for the Circle rules list (ADR 0085). */
 private fun classRuleLines(s: circles.event.ConfigSettings): List<String> = listOf(
-    "Everyday value class: ${TierText.label(tierOfLevel(s.everydayLevel))}, ${waitingText(s.everydayWaiting)}",
-    "Valuable value class: ${TierText.label(tierOfLevel(s.valuableLevel))}, ${waitingText(s.valuableWaiting)}",
-    "High-value value class: ${TierText.label(tierOfLevel(s.highValueLevel))}, ${waitingText(s.highValueWaiting)}",
+    "Everyday: ${TierText.label(tierOfLevel(s.everydayLevel))}, ${waitingText(s.everydayWaiting)}",
+    "Valuable: ${TierText.label(tierOfLevel(s.valuableLevel))}, ${waitingText(s.valuableWaiting)}",
+    "High-value: ${TierText.label(tierOfLevel(s.highValueLevel))}, ${waitingText(s.highValueWaiting)}",
 )
 
 private fun classRuleSummary(s: circles.event.ConfigSettings): String =
@@ -2544,7 +2544,7 @@ private fun FlowContent.stewards(home: HomeData) {
         p { +WAITING_PERIOD_NOT_A_PAUSE }
         h3 { +"What each value class needs" }
         ul {
-            li { +"Essential value class: ${TierText.label(Tier.NEW)}, always open, never in the waiting period" }
+            li { +"Essential: ${TierText.label(Tier.NEW)}, always open, never in the waiting period" }
             for (line in classRuleLines(now)) li { +line }
         }
         p { +"A change applies from the day enough stewards agree. Things decided before then keep the rules they were decided under." }
@@ -2592,9 +2592,9 @@ private fun FlowContent.stewards(home: HomeData) {
                         }
                     }
                     for ((field, label, level) in listOf(
-                        Triple(RULES_LEVEL_EVERYDAY, "Level needed for the everyday value class: ", now.everydayLevel),
-                        Triple(RULES_LEVEL_VALUABLE, "Level needed for the valuable value class: ", now.valuableLevel),
-                        Triple(RULES_LEVEL_HIGH_VALUE, "Level needed for the high-value value class: ", now.highValueLevel),
+                        Triple(RULES_LEVEL_EVERYDAY, "Level needed for everyday items: ", now.everydayLevel),
+                        Triple(RULES_LEVEL_VALUABLE, "Level needed for valuable items: ", now.valuableLevel),
+                        Triple(RULES_LEVEL_HIGH_VALUE, "Level needed for high-value items: ", now.highValueLevel),
                     )) {
                         label {
                             attributes["for"] = field
@@ -2611,9 +2611,9 @@ private fun FlowContent.stewards(home: HomeData) {
                         }
                     }
                     for ((field, label, on) in listOf(
-                        Triple(RULES_WAIT_EVERYDAY, "Everyday value class is in the waiting period", now.everydayWaiting),
-                        Triple(RULES_WAIT_VALUABLE, "Valuable value class is in the waiting period", now.valuableWaiting),
-                        Triple(RULES_WAIT_HIGH_VALUE, "High-value value class is in the waiting period", now.highValueWaiting),
+                        Triple(RULES_WAIT_EVERYDAY, "Everyday items are in the waiting period", now.everydayWaiting),
+                        Triple(RULES_WAIT_VALUABLE, "Valuable items are in the waiting period", now.valuableWaiting),
+                        Triple(RULES_WAIT_HIGH_VALUE, "High-value items are in the waiting period", now.highValueWaiting),
                     )) div {
                         classes = setOf("check-row")
                         input(type = InputType.checkBox, name = field) {

@@ -33,7 +33,7 @@ data class DeviceKeyWrap(val device: DeviceId, val wrapped: ByteString)
 /** A photo of an item (ADR 0060): two sealed blobs on the server, opened with the circle key of [epoch], and a description. */
 data class ItemPhoto(val photo: String, val thumb: String, val epoch: Int, val alt: String)
 
-const val MAX_PHOTOS_PER_ITEM = 3
+const val MAX_PHOTOS_PER_ITEM = circles.media.ImagePolicy.MAX_PHOTOS_PER_ITEM
 const val MAX_PHOTO_ALT_CHARS = 140
 private const val BLOB_HASH_CHARS = 64
 

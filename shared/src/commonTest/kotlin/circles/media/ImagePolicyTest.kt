@@ -27,7 +27,8 @@ class ImagePolicyTest {
         assertEquals(320, ImagePolicy.THUMBNAIL_EDGE_PX)
         assertEquals(400 * 1024, ImagePolicy.TARGET_PHOTO_BYTES)
         assertEquals(40 * 1024, ImagePolicy.TARGET_THUMBNAIL_BYTES)
-        assertEquals(6, ImagePolicy.MAX_PHOTOS_PER_ITEM)
+        assertEquals(3, ImagePolicy.MAX_PHOTOS_PER_ITEM)
+        assertEquals(ImagePolicy.MAX_PHOTOS_PER_ITEM, circles.event.MAX_PHOTOS_PER_ITEM, "one photo limit everywhere (ADR 0060)")
     }
 
     @Test
@@ -143,11 +144,11 @@ class ImagePolicyTest {
     }
 
     @Test
-    fun anItemTakesAtMostSixPhotos() {
+    fun anItemTakesAtMostThreePhotos() {
         assertTrue(ImagePolicy.canAddPhoto(0))
-        assertTrue(ImagePolicy.canAddPhoto(5))
-        assertFalse(ImagePolicy.canAddPhoto(6))
-        assertFalse(ImagePolicy.canAddPhoto(7))
+        assertTrue(ImagePolicy.canAddPhoto(2))
+        assertFalse(ImagePolicy.canAddPhoto(3))
+        assertFalse(ImagePolicy.canAddPhoto(4))
         assertFalse(ImagePolicy.canAddPhoto(-1))
     }
 
