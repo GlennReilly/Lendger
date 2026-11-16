@@ -1,6 +1,6 @@
 # 0095. Steward votes count within 14 days of the first vote
 
-- Status: Accepted
+- Status: Accepted (point 6 superseded by 0096)
 - Date: 2026-11-16
 - Supersedes: only the wording of ADR 0023 point 3 ("within `stewardProposalDays` (14) of each other"), which ADR 0027 point 4 carried forward as "a proposal expires after 14 days". It makes that expiry precise. Everything else in 0023, 0027 and 0029 stands.
 
