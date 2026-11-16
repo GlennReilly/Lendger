@@ -1,12 +1,12 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
-import { startServer, startChrome, sleep, checkAccessibility, reportAccessibility } from './lib.mjs';
+import { startServer, startChrome, sleep, checkAccessibility, reportAccessibility, waitUntil, markStep, WAIT_TIMEOUT_MS } from './lib.mjs';
 const PASS = 'correct horse battery staple';
 const PASS_NEW = 'second passphrase for alice';
 const server = await startServer(); const alice = await startChrome(9333); const bea = await startChrome(9334); const phone = await startChrome(9336); const restorer = await startChrome(9337);
 const text = c => c.evaluate('document.getElementById("app").innerText');
-async function until(c, expr, what, ms = 20000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await c.evaluate(expr) === true) return; await sleep(250); } throw new Error('timeout: ' + what + '\n' + await text(c)); }
+const until = (c, expr, what, ms = WAIT_TIMEOUT_MS) => waitUntil(what, async () => await c.evaluate(expr) === true, { ms, detail: async () => '\n' + await text(c) });
 // Types into the form's fields like a person would (an input event per field), then submits.
 const submit = (c, formId, fields) => c.evaluate(`(() => { const f = document.getElementById(${JSON.stringify(formId)}); for (const [k, v] of Object.entries(${JSON.stringify(fields)})) { const e = f.elements.namedItem(k); e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); } f.requestSubmit(); return true; })()`);
 const type = (c, formId, name, v) => c.evaluate(`(() => { const e = document.getElementById(${JSON.stringify(formId)}).elements.namedItem(${JSON.stringify(name)}); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
@@ -15,7 +15,7 @@ const buttonHidden = (c, formId) => c.evaluate(`document.getElementById(${JSON.s
 const click = (c, action, extra = '') => c.evaluate(`(() => { const b = document.querySelector('[data-action="${action}"]${extra}'); if (!b) return 'no button'; b.click(); return true; })()`);
 const has = (c, s) => `document.getElementById("app").innerText.includes(${JSON.stringify(s)})`;
 // Clicks "Sync now" every couple of seconds until the page shows what is expected (the other browser may not have pushed yet).
-async function syncUntil(c, expr, what, ms = 25000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await c.evaluate(expr) === true) return; await click(c, 'sync'); await sleep(1500); } throw new Error('timeout: ' + what + '\n' + await text(c)); }
+const syncUntil = (c, expr, what, ms = WAIT_TIMEOUT_MS) => waitUntil(what, async () => { if (await c.evaluate(expr) === true) return true; await click(c, 'sync'); return false; }, { ms, every: 1500, detail: async () => '\n' + await text(c) });
 const search = (c, v) => c.evaluate(`(() => { const e = document.getElementById('history-search'); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
 // The accessibility tree Chrome builds for the page (what a screen reader is given): roles, names and states of the nodes that are not ignored.
 // It is NOT a screen-reader test: it shows what is exposed, not how a reader speaks it.
@@ -31,7 +31,7 @@ async function axNodes(c, label = '') {
   if (process.env.AXDUMP) console.log('AXTREE ' + label, JSON.stringify(nodes.filter(n => ['banner', 'navigation', 'main', 'heading', 'button', 'link', 'status', 'alert', 'list', 'listitem'].includes(n.role)).slice(0, 60)));
   return nodes;
 }
-let step = 0; const ok = m => console.log(`ok ${++step}: ${m}`);
+let step = 0; const ok = m => { console.log(`ok ${++step}: ${m}`); markStep(`ok ${step}: ${m}`); };
 try {
   await alice.goto(server.url + '/'); await until(alice, has(alice, 'Welcome to Lendger'), 'welcome page');
   if (await alice.evaluate('document.querySelectorAll("form, button").length') !== 0) throw new Error('the welcome page has a form or button');
@@ -434,9 +434,16 @@ try {
   await bea.evaluate('location.hash = "#/members"'); await until(bea, 'document.querySelector("[data-action=check-person]") !== null', 'bea members');
   if (!(await bea.evaluate(has(bea, 'Bea (identity not confirmed yet) (you)') + ' && ' + has(bea, 'Nobody has confirmed your identity yet.')))) throw new Error('bea does not see her own identity as not confirmed yet: ' + await text(bea));
   await click(bea, 'check-person'); await until(bea, has(bea, 'Checking: ') + ' && document.querySelector("p.fingerprint") !== null', 'bea checks alice');
-  if (await bea.evaluate('document.querySelector("[data-action=vouch], form[id^=confirm-name-]") !== null')) throw new Error('a new member is offered Vouch or Confirm identity');
-  if (!(await bea.evaluate(has(bea, 'Only members at Level 2 or above, or a steward, can confirm someone')))) throw new Error('no explanation for a new member');
-  ok('a new member (Level 1) checking someone sees the characters but no Vouch and no Confirm identity');
+  if (await bea.evaluate('document.querySelector("[data-action=vouch]") !== null')) throw new Error('a new member is offered Vouch');
+  // ADR 0090: one of the first members may confirm the founder at Level 1, so bea is offered Confirm identity for alice only.
+  if (await bea.evaluate('document.querySelector("form[id^=confirm-name-]") === null')) throw new Error('a first member is not offered Confirm identity for the founder');
+  const founderForm = await bea.evaluate('document.querySelector("form[id^=confirm-name-]").id');
+  await bea.evaluate(`(() => { const b = document.getElementById("${founderForm}").querySelector("input[type=checkbox]"); b.checked = true; b.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  await bea.evaluate(`document.getElementById("${founderForm}").requestSubmit()`);
+  await until(bea, has(bea, 'You confirmed this member\'s identity.'), 'bea confirmed alice');
+  ok('a new member (Level 1) who is one of the first members sees the characters and can confirm the founder, but gets no Vouch');
+  await syncUntil(alice, 'location.hash = "#/members"; ' + has(alice, 'Alice Smith') + ' && !' + has(alice, 'Alice Smith (identity not confirmed yet)'), 'alice sees her own identity confirmed');
+  await alice.evaluate('location.hash = "#/members"'); await until(alice, 'document.querySelector("[data-action=check-person]") !== null', 'alice back on members');
   await click(alice, 'check-person'); await until(alice, has(alice, 'Checking: ') + ' && document.querySelector("form[id^=confirm-name-]") !== null', 'alice checks bea');
   if (await alice.evaluate('document.querySelector("[data-action=vouch]") === null')) throw new Error('alice is not offered Vouch on the check page'); ok('alice (a steward) is offered "Vouch for this person" on the check page');
   if ((await alice.evaluate('document.querySelector("p.fingerprint").textContent')) !== beaChars) throw new Error('the check page does not show bea\'s characters');

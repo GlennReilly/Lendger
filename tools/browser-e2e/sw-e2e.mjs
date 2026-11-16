@@ -1,16 +1,17 @@
 // The service worker in a real Chrome (ADR 0041): offline load, then a new version waits for "Update now".
 // Serves a temporary copy of web/build/dist/web with a tiny static server, so it needs no Lendger server.
 import { createServer } from 'node:http';
-import { cpSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startChrome, sleep } from './lib.mjs';
+import { startChrome, sleep, waitUntil, markStep, onCleanup, WAIT_TIMEOUT_MS } from './lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, '../../web/build/dist/web');
 if (!existsSync(join(dist, 'sw.js'))) throw new Error('run ./gradlew :web:stampWorker first');
-const copy = join(mkdtempSync(join(tmpdir(), 'circles-sw-')), 'web');
+const copyRoot = mkdtempSync(join(tmpdir(), 'circles-sw-')); onCleanup(() => rmSync(copyRoot, { recursive: true, force: true }));
+const copy = join(copyRoot, 'web');
 cpSync(dist, copy, { recursive: true });
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 const PORT = 18082;
@@ -26,8 +27,8 @@ const handler = (req, res) => {
 const open = () => new Promise((r) => { const s = createServer(handler); s.listen(PORT, '127.0.0.1', () => r(s)); });
 const close = (s) => new Promise((r) => { s.closeAllConnections?.(); s.close(r); });
 
-let step = 0; const ok = (m) => console.log(`ok ${++step}: ${m}`);
-async function until(c, expr, what, ms = 15000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if ((await c.evaluate(expr)) === true) return; await sleep(200); } throw new Error('timeout: ' + what + '\n' + await c.evaluate('document.body.innerText')); }
+let step = 0; const ok = (m) => { console.log(`ok ${++step}: ${m}`); markStep(`ok ${step}: ${m}`); };
+const until = (c, expr, what, ms = WAIT_TIMEOUT_MS) => waitUntil(what, async () => (await c.evaluate(expr)) === true, { ms, detail: async () => '\n' + await c.evaluate('document.body.innerText') });
 const welcome = 'document.body.innerText.includes("Welcome to Lendger")';
 
 let server = await open();

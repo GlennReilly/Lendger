@@ -4,28 +4,75 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ---- time limits (every run and every wait is bounded; a hang fails with the step it reached) ----
+/** Whole-run limit in minutes; E2E_TIMEOUT_MIN overrides it (fractions allowed, for the self-test). */
+export const RUN_LIMIT_MINUTES = Number(process.env.E2E_TIMEOUT_MIN ?? 15);
+/** Default limit for one wait, and for one DevTools call, in milliseconds. */
+export const WAIT_TIMEOUT_MS = 30_000;
+export const CDP_TIMEOUT_MS = 30_000;
+const POLL_MS = 250;
+let lastStep = '(before the first step)';
+/** Records the step the script has reached; a time-out reports it. */
+export const markStep = name => { lastStep = name; };
+export const currentStep = () => lastStep;
+const cleanups = new Set();
+/** Registers something to undo when a run is cut short (processes and temp folders do it themselves through startServer/startChrome). */
+export const onCleanup = fn => { cleanups.add(fn); return fn; };
+function runCleanups() { for (const fn of [...cleanups]) { try { fn(); } catch {} } cleanups.clear(); }
+/** Kills what the run started and removes its temp folders, synchronously, then exits non-zero. */
+export function abortRun(reason) {
+  console.error(`\nE2E ABORTED: ${reason}\nLast step reached: ${lastStep}`);
+  runCleanups();
+  process.exit(1);
+}
+const runTimer = setTimeout(() => abortRun(`the run exceeded ${RUN_LIMIT_MINUTES} minute(s) (E2E_TIMEOUT_MIN)`), RUN_LIMIT_MINUTES * 60_000);
+runTimer.unref();
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => abortRun(`received ${signal}`));
+
+/**
+ * Polls [predicate] (sync or async) until it returns true. Fails with the step reached and [what] when [ms] pass.
+ * Every wait in the scripts goes through this, so none can hang.
+ */
+export async function waitUntil(what, predicate, { ms = WAIT_TIMEOUT_MS, every = POLL_MS, detail = async () => '' } = {}) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (await predicate() === true) return;
+    await sleep(every);
+  }
+  throw new Error(`timeout after ${ms / 1000} s at step "${lastStep}" waiting for: ${what}` + (await detail().catch(() => '')));
+}
+const withLimit = (what, ms, promise) => {
+  let timer;
+  const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`timeout after ${ms / 1000} s at step "${lastStep}" waiting for: ${what}`)), ms); });
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+};
 const jar = process.env.LENDGER_JAR ?? join(dirname(fileURLToPath(import.meta.url)), '../../server/build/libs/lendger-server.jar');
 
 export async function startServer(port = 18081) {
   const data = mkdtempSync(join(tmpdir(), 'circles-smoke-'));
   const proc = spawn('java', ['-jar', jar, 'serve'], { env: { ...process.env, LENDGER_DATA_DIR: data, LENDGER_BIND: '127.0.0.1', LENDGER_RATE_LIMIT: 'false', LENDGER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; proc.stdout.on('data', d => log += d); proc.stderr.on('data', d => log += d);
-  for (let i = 0; i < 60; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/healthz`)).ok) break; } catch {} await sleep(250); }
-  proc.once('exit', () => rmSync(data, { recursive: true, force: true }));
-  return { url: `http://localhost:${port}`, stop: () => proc.kill(), log: () => log };
+  const removeData = () => rmSync(data, { recursive: true, force: true });
+  const stop = () => { proc.kill(); };
+  onCleanup(() => { proc.kill('SIGKILL'); removeData(); });
+  proc.once('exit', removeData);
+  await waitUntil(`the server to answer /healthz on port ${port}`, async () => { try { return (await fetch(`http://127.0.0.1:${port}/healthz`)).ok; } catch { return false; } }, { detail: async () => '\n' + log.slice(-1500) });
+  return { url: `http://localhost:${port}`, stop, log: () => log };
 }
 
 export async function startChrome(port = 9333) {
   const profile = mkdtempSync(join(tmpdir(), 'chrome-prof-'));
   const proc = spawn('google-chrome', ['--headless=new', '--disable-gpu', '--no-sandbox', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
+  onCleanup(() => { proc.kill('SIGKILL'); rmSync(profile, { recursive: true, force: true }); });
   let targets;
-  for (let i = 0; i < 60; i++) { try { targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); break; } catch { await sleep(250); } }
+  await waitUntil(`Chrome to listen on debugging port ${port}`, async () => { try { targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); return true; } catch { return false; } });
   const page = targets.find(t => t.type === 'page');
   const ws = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise(r => ws.addEventListener('open', r));
+  await withLimit(`the DevTools socket of Chrome on port ${port} to open`, CDP_TIMEOUT_MS, new Promise(r => ws.addEventListener('open', r)));
   let id = 0; const pending = new Map(); const events = []; const listeners = [];
   ws.addEventListener('message', m => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } else if (d.method) { events.push(d); listeners.forEach(l => l(d)); } });
-  const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+  const send = (method, params = {}) => withLimit(`DevTools call ${method} (port ${port})`, CDP_TIMEOUT_MS, new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); }));
   await send('Runtime.enable'); await send('Page.enable'); await send('Log.enable');
   const logs = [];
   listeners.push(d => {

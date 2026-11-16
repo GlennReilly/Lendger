@@ -4,7 +4,7 @@
 // cache cold, for two DevTools network profiles and a 4x slower CPU. No pass/fail: it informs the budget decision.
 import { createServer, request } from 'node:http';
 import { createGzip } from 'node:zlib';
-import { startServer, startChrome, sleep } from './lib.mjs';
+import { startServer, startChrome, sleep, markStep } from './lib.mjs';
 
 const PROFILES = [
   { name: 'Wi-Fi (no throttling)', latency: 0, down: -1, cpu: 1 },
@@ -39,6 +39,7 @@ try {
     await chrome.send('Emulation.setCPUThrottlingRate', { rate: p.cpu });
     await chrome.send('Page.navigate', { url: 'about:blank' });
     await sleep(500);
+    markStep('loading the welcome page: ' + p.name);
     const started = Date.now();
     await chrome.send('Page.navigate', { url: process.env.DIRECT === '1' ? 'http://127.0.0.1:18083/' : 'http://127.0.0.1:18084/' });
     let ms = null;
