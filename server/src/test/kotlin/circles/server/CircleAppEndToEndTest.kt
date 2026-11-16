@@ -1976,17 +1976,23 @@ class CircleAppEndToEndTest {
         fun advance(days: Int) {
             day += days; server.clock.advanceSeconds(days.toLong() * 24 * 60 * 60)
         }
+        // The counter starts at the full window, counting the dispute's own day (ADR 0094).
+        assertEquals(circles.event.DAMAGE_CLAIM_DAYS, home(alice.app).loans.single { it.loan == loan }.dispute!!.daysLeft)
+        assertEquals(circles.event.DAMAGE_CLAIM_DAYS, home(carol.app).loans.single { it.loan == loan }.dispute!!.daysLeft)
         // The dispute's own day is the first of its 30 days: on the 30th the steward is still offered the ruling.
         advance(circles.event.DAMAGE_CLAIM_DAYS - 1)
         sync()
         assertTrue(home(alice.app).loans.single { it.loan == loan }.canResolve)
         assertEquals(DisputeStatus.PENDING, home(carol.app).loans.single { it.loan == loan }.dispute!!.status)
+        assertEquals(1, home(alice.app).loans.single { it.loan == loan }.dispute!!.daysLeft, "the last day a ruling is accepted")
+        assertEquals(1, home(carol.app).loans.single { it.loan == loan }.dispute!!.daysLeft)
         // The next day it counts as dismissed, and the app no longer offers a ruling.
         advance(1)
         sync()
         assertTrue(home(alice.app).loans.none { it.loan == loan }, "a steward who is not a party no longer sees it among disputes to resolve")
         assertEquals(LoanResult.NotAllowed, alice.app.resolveDispute(loan, DisputeOutcome.UPHELD))
         assertEquals(DisputeStatus.DISMISSED, home(carol.app).loans.single { it.loan == loan }.dispute!!.status)
+        assertEquals(0, home(carol.app).loans.single { it.loan == loan }.dispute!!.daysLeft, "closed: nothing left to count")
         val pointsBefore = home(carol.app).standing!!.points
 
         // A modified client sends the late ruling anyway: the server cannot read it, but every member's fold refuses it (ADR 0094).

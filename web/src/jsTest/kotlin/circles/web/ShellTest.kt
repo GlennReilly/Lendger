@@ -825,6 +825,40 @@ class ShellViewTest {
         }
     }
 
+    private fun disputedWithDaysLeft(left: Int) =
+        { l: LoanSummary -> l.copy(dispute = DisputeSummary(DisputeClaim.DAMAGE, null, 20_760, DisputeStatus.PENDING, closesDay = 20_790, daysLeft = left)) }
+
+    @Test fun aStewardSeesTheDaysLeftToRule() {
+        val loan = returned(LoanRole.STEWARD, disputedWithDaysLeft(12), { it.copy(canResolve = true) })
+        val html = render(open(home(steward = true, loans = listOf(loan))).copy(screen = Screen.Borrow))
+        assertTrue("12 days left to rule on this dispute." in html, html)
+        assertTrue("If no steward rules on or before" in html && "it counts as dismissed." in html)
+        assertFalse("Last day" in html)
+    }
+
+    @Test fun aStewardIsToldWhenTodayIsTheLastDayToRule() {
+        val loan = returned(LoanRole.STEWARD, disputedWithDaysLeft(1), { it.copy(canResolve = true) })
+        val html = render(open(home(steward = true, loans = listOf(loan))).copy(screen = Screen.Borrow))
+        assertTrue("Last day to rule on this dispute (" in html, html)
+        assertTrue("If no steward rules today, it counts as dismissed." in html)
+        assertFalse("1 days" in html)
+    }
+
+    @Test fun theOwnerAndTheBorrowerSeeTheDaysLeftForAStewardToRule() {
+        for (role in listOf(LoanRole.OWNER, LoanRole.BORROWER)) {
+            val html = borrow(returned(role, disputedWithDaysLeft(12)))
+            assertTrue("A steward has 12 days left to rule on this dispute." in html, role.name)
+            val last = borrow(returned(role, disputedWithDaysLeft(1)))
+            assertTrue("Today is the last day for a steward to rule on this dispute (" in last, role.name)
+            assertFalse("1 days" in last)
+        }
+    }
+
+    @Test fun aSettledDisputeShowsNoCounter() {
+        assertFalse("to rule on this dispute" in borrow(returned(LoanRole.OWNER, disputed(DisputeStatus.UPHELD))))
+        assertFalse("to rule on this dispute" in borrow(returned(LoanRole.OWNER, disputed(DisputeStatus.DISMISSED))))
+    }
+
     @Test fun settledDisputesSayHowTheyEnded() {
         assertTrue("was upheld" in borrow(returned(LoanRole.BORROWER, disputed(DisputeStatus.UPHELD))))
         assertTrue("dismissed, so the return counts as reported" in borrow(returned(LoanRole.BORROWER, disputed(DisputeStatus.DISMISSED))))

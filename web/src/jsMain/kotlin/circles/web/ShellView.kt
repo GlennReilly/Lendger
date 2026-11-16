@@ -56,6 +56,7 @@ import circles.event.MIN_STEWARD_FALLBACK_DELAY_DAYS
 import circles.event.MIN_STEWARD_INACTIVE_DAYS
 import circles.event.MIN_STEWARD_QUORUM
 import circles.app.DisputeStatus
+import circles.app.DisputeSummary
 import circles.event.DAMAGE_CLAIM_DAYS
 import circles.event.DisputeClaim
 import circles.app.StandingSummary
@@ -1698,6 +1699,7 @@ private fun FlowContent.borrow(home: HomeData) {
                     h3 { +loan.itemName }
                     p { +"The owner says the borrower did not report ${if (loan.dispute?.claim == DisputeClaim.LOSS) "a loss" else "damage"}. The borrower reported: ${loan.reported?.let { outcomeLabel(it) } ?: "nothing"}." }
                     loan.dispute?.note?.let { p { +"Owner's note: $it" } }
+                    loan.dispute?.let { p { +disputeDaysLeftText(it, forSteward = true) } }
                     loanButton(ACTION_UPHOLD, loan, "Uphold: the borrower did not report it")
                     loanButton(ACTION_DISMISS_DISPUTE, loan, "Dismiss: the return was as reported")
                 }
@@ -1842,6 +1844,7 @@ private fun FlowContent.borrow(home: HomeData) {
                             }
                         }
                         dispute.note?.let { p { +"Owner's note: $it" } }
+                        if (dispute.status == DisputeStatus.PENDING) p { +disputeDaysLeftText(dispute, forSteward = false) }
                         if (dispute.status == DisputeStatus.PENDING && home.isSteward && home.stewardCount == 1) {
                             p { +"You are the only steward, so nobody else can decide this. It closes after $DAMAGE_CLAIM_DAYS days as if the return had been fine." }
                         }
@@ -1902,6 +1905,21 @@ fun historyOutcomeText(outcome: HistoryOutcome): String = when (outcome) {
     HistoryOutcome.LOSS_REPORTED -> "Lost, reported (no penalty for telling)."
     HistoryOutcome.DECLINED -> "Declined."
     HistoryOutcome.CANCELLED -> "Cancelled."
+}
+
+/** The counter on an open dispute (ADR 0094): days left to rule, and when it counts as dismissed. Plain text, for stewards or for the two parties. */
+fun disputeDaysLeftText(dispute: DisputeSummary, forSteward: Boolean): String {
+    val left = dispute.daysLeft
+    val lastDay = DateText.show(dispute.closesDay - 1)
+    val last = left <= 1
+    val head = when {
+        last && forSteward -> "Last day to rule on this dispute ($lastDay)."
+        last -> "Today is the last day for a steward to rule on this dispute ($lastDay)."
+        forSteward -> "$left days left to rule on this dispute."
+        else -> "A steward has $left days left to rule on this dispute."
+    }
+    val tail = if (last) "If no steward rules today, it counts as dismissed." else "If no steward rules on or before $lastDay, it counts as dismissed."
+    return "$head $tail"
 }
 
 /** How a disputed return ended, as one sentence for either side. */

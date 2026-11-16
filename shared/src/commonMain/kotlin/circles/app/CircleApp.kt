@@ -274,7 +274,16 @@ enum class LoanRole { BORROWER, OWNER, /** Neither party: a steward who may reso
 enum class DisputeStatus { PENDING, UPHELD, DISMISSED }
 
 /** A dispute as the Borrow screen shows it. [DisputeStatus.DISMISSED] includes one that closed unresolved after 30 days. */
-data class DisputeSummary(val claim: DisputeClaim, val note: String?, val day: Int, val status: DisputeStatus)
+data class DisputeSummary(
+    val claim: DisputeClaim,
+    val note: String?,
+    val day: Int,
+    val status: DisputeStatus,
+    /** The day the dispute counts as dismissed if nobody ruled: [circles.event.disputeClosesDay] (ADR 0094). */
+    val closesDay: Int = circles.event.disputeClosesDay(day),
+    /** Days a steward still has to rule, counting today: 1 on the last day a ruling is accepted; 0 once it is not [DisputeStatus.PENDING]. */
+    val daysLeft: Int = 0,
+)
 
 /** A loan this member is part of, as the Borrow screen shows it. */
 data class LoanSummary(
@@ -2065,6 +2074,7 @@ class CircleApp(
                                         it.outcome == DisputeOutcome.DISMISSED || now >= circles.event.disputeClosesDay(it.day) -> DisputeStatus.DISMISSED
                                         else -> DisputeStatus.PENDING
                                     },
+                                    daysLeft = if (it.outcome == null) (circles.event.disputeClosesDay(it.day) - now).coerceAtLeast(0) else 0,
                                 )
                             },
                             canConfirm = canConfirm(loan, me),

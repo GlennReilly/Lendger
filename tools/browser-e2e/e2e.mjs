@@ -245,10 +245,12 @@ try {
   await alice.evaluate('(() => { const d = [...document.querySelectorAll("details")].find(x => x.textContent.includes("Report a problem")); d.open = true; return true; })()');
   await alice.evaluate('(() => { const f = document.querySelector("form[id^=dispute-form-]"); f.elements.namedItem("claim").value = "DAMAGE"; f.elements.namedItem("note").value = "the rail is bent"; f.requestSubmit(); return true; })()');
   await until(alice, has(alice, 'Pending review') + ' && ' + has(alice, "Owner's note: the rail is bent"), 'dispute pending'); ok('the owner reported damage: pending review with the note');
+  if (!(await alice.evaluate(has(alice, 'A steward has 30 days left to rule on this dispute.')))) throw new Error('no days-left counter for the owner'); ok('the owner sees the days left for a steward to rule');
   await checkAccessibility(alice, 'borrow, dispute pending');
   if (!(await alice.evaluate(has(alice, 'You are the only steward, so nobody else can decide this')))) throw new Error('no single-steward warning'); ok('the only steward is warned that nobody else can decide it');
   if (await alice.evaluate('document.querySelector("[data-action=uphold-dispute]") !== null')) throw new Error('alice can resolve her own dispute'); ok('a party to the loan is not offered the decision');
   await sleep(1500); await click(alice, 'sync'); await syncUntil(bea, 'location.hash = "#/borrow"; ' + has(bea, 'Pending review'), 'bea sees pending review'); ok('the borrower sees "Pending review" too');
+  if (!(await bea.evaluate(has(bea, 'A steward has 30 days left to rule on this dispute.')))) throw new Error('no days-left counter for the borrower'); ok('the borrower sees the days left too');
   // A loan the borrower reports as late (requests cannot start in the past, so lateness is reported, ADR 0072; the after-the-last-day rule is a unit test).
   await lendOnceAndReturnOk(0, 0, 'LATE'); await syncUntil(alice, 'location.hash = "#/borrow"; ' + has(alice, 'Returned late'), 'alice sees the late return'); ok('a loan was reported back late');
   await alice.evaluate('location.hash = "#/items"'); await until(alice, has(alice, 'Long ladder'), 'alice back on items');
